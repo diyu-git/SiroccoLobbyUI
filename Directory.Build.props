@@ -1,0 +1,12 @@
+<Project>
+    <PropertyGroup>
+        <!-- 
+            Default game installation paths.
+            Users can override these by creating a Directory.Build.props.user file
+            (which is gitignored) with their own paths.
+        -->
+        <GAME_INSTALL_PATH Condition="'$(GAME_INSTALL_PATH)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Sirocco</GAME_INSTALL_PATH>
+        <GAME_MANAGED_PATH>$(GAME_INSTALL_PATH)\MelonLoader\Managed</GAME_MANAGED_PATH>
+        <MELON_LOADER_PATH>$(GAME_INSTALL_PATH)\MelonLoader</MELON_LOADER_PATH>
+    </PropertyGroup>
+</Project>

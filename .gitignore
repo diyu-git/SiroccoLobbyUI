@@ -1,0 +1,51 @@
+# Build artifacts
+bin/
+obj/
+*.user
+*.suo
+
+# IDE
+.idea/
+.vscode/
+.vs/
+
+# ❌ CRITICAL: Decompiled game code (MUST NOT be published)
+dnspyAssembly/
+
+# ❌ CRITICAL: Exclude proprietary binaries
+# Native Steamworks DLLs (proprietary - Valve)
+**/steam_api.dll
+**/steam_api64.dll
+**/libsteam_api.so
+**/libsteam_api.dylib
+
+# Game assemblies (copyrighted by game developer)
+**/Assembly-CSharp.dll
+**/GameAssembly.dll
+**/Il2Cppmscorlib.dll
+dnspyAssembly/
+
+# Unity runtime (licensed to game developer only)
+**/UnityPlayer.dll
+**/UnityEngine.*.dll
+**/Unity.*.dll
+
+# MelonLoader (users install separately)
+**/MelonLoader.dll
+**/0Harmony.dll
+**/Il2CppInterop.*.dll
+
+# Steam App ID (user-specific)
+steam_appid.txt
+
+# Logs and development artifacts
+logs/
+*.log
+*.trace
+
+# OS-specific
+Thumbs.db
+.DS_Store
+
+# User-specific build configuration
+Directory.Build.props.user

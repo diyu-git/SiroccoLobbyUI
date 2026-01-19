@@ -1,0 +1,9 @@
+<Project>
+    <PropertyGroup>
+        <!-- 
+            Local user-specific paths (this file is gitignored).
+            Copy this file to Directory.Build.props.user and customize for your system.
+        -->
+        <GAME_INSTALL_PATH>D:\Spell\Installed\Steam\steamapps\common\Sirocco</GAME_INSTALL_PATH>
+    </PropertyGroup>
+</Project>

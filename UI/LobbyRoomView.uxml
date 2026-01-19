@@ -1,0 +1,36 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <ui:VisualElement name="LobbyRoomPanel" class="lobby-room-panel">
+        <!-- Header -->
+        <ui:VisualElement name="LobbyRoomHeader" class="lobby-room-header">
+            <ui:Label name="LobbyName" text="Lobby Name" class="lobby-name-label" />
+            <ui:VisualElement style="flex-direction: row;">
+                <ui:Button name="ReadyButton" text="Ready" class="ready-button" />
+                <ui:Button name="StartGameButton" text="Start Game" class="start-game-button" />
+                <ui:Button name="LeaveLobbyButton" text="Leave Lobby" class="leave-lobby-button" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- Main Content -->
+        <ui:VisualElement name="LobbyRoomContent" class="lobby-room-content">
+            <!-- Teams Container (Left Side) -->
+            <ui:VisualElement name="TeamsContainer" class="teams-container">
+                <!-- Team 1 (5 slots) -->
+                <ui:VisualElement name="Team1Container" class="team-container team-1">
+                    <ui:Label text="Team 1" class="team-header" />
+                    <!-- Player slots will be added dynamically -->
+                </ui:VisualElement>
+
+                <!-- Team 2 (5 slots) -->
+                <ui:VisualElement name="Team2Container" class="team-container team-2">
+                    <ui:Label text="Team 2" class="team-header" />
+                    <!-- Player slots will be added dynamically -->
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <!-- Event Log (Right Side) -->
+            <ui:VisualElement name="EventLogContainer" class="event-log-container">
+                <!-- Event log will be added dynamically -->
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
