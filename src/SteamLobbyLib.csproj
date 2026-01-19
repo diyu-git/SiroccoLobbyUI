@@ -8,8 +8,13 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- Reference SteamLobbyLib from submodule -->
+        <Reference Include="SteamLobbyLib">
+            <HintPath>..\SLL\SteamLobbyLib\bin\Release\netstandard2.1\SteamLobbyLib.dll</HintPath>
+        </Reference>
+
         <Reference Include="Steamworks.NET">
-            <HintPath>..\steamworks\Steamworks.NET.dll</HintPath>
+            <HintPath>..\SLL\steamworks\Steamworks.NET.dll</HintPath>
         </Reference>
 
         <Reference Include="MelonLoader">
@@ -65,7 +70,7 @@
         <Copy SourceFiles="$(TargetPath)"
             DestinationFolder="$(GAME_INSTALL_PATH)\Mods\"
             SkipUnchangedFiles="true" />
-        <Copy SourceFiles="..\steamworks\Steamworks.NET.dll"
+        <Copy SourceFiles="..\SLL\steamworks\Steamworks.NET.dll"
             DestinationFolder="$(GAME_INSTALL_PATH)\Mods\"
             SkipUnchangedFiles="true" />
         <Message Text="Copied mod to: $(GAME_INSTALL_PATH)\Mods\" Importance="high" />
