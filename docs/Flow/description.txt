@@ -1,0 +1,73 @@
+StartSinglePlayerWithSteamP2P is new (anything with the steamP2P is the new peer to peer)
+
+Flow (pretty sure this is what you have above)
+-> CLICK: SinglePlayer (Server + Client)
+"InitializeProtoLobbyCaptainDropdown();
+_isSinglePlayer = true;
+_networkManager.StartSinglePlayer();"
+
+====
+non-host clients join via steam ID
+non-host clients readys after connecting
+====
+Host can select Team and Captain
+
+====
+-> CLICK: Host Client Ready
+-> CLICK: Start Game
+
+
+===== (edited)Friday, January 16, 2026 16:18
+:thumbsup:
+Click to react
+:tada:
+Click to react
+:rofl:
+Click to react
+Add Reaction
+Reply
+Forward
+More
+[16:11]Friday, January 16, 2026 16:11
+-> CLICK: SinglePlayer (Server + Client) (follows the flow below)
+Button Click Handler (GameAuthority.cs, line 5764),
+if(GUILayout.Button("SinglePlayer (Server + Client)"))
+{
+    InitializeProtoLobbyCaptainDropdown();
+    _isSinglePlayer = true;
+    _networkManager.StartSinglePlayer();
+}
+
+InitializeProtoLobbyCaptainDropdown() (GameAuthority.cs, line 5734),
+Initializes the captain selection dropdown
+Loads all available captains from the data registry
+Sets the default captain based on WartideSettings
+
+StartSinglePlayer() (WartideNetworkManager.cs, line 364),
+Sets _state = NetworkManagerState.SinglePlayer
+Calls SetupServer()
+Calls OnStartSinglePlayer() (virtual method, can be overridden)
+Calls FinishStartHost()
+If using Steam P2P, enables incoming connections
+
+SetupServer() (WartideNetworkManager.cs, line 238),
+Starts authenticator if present
+Calls NetworkServer.Listen(_maxConnections)
+Calls OnStartServer()
+Calls RegisterServerMessages()
+
+OnStartServer() (WartideNetworkManager.cs, line 264),
+Calls GameAuthority.Instance.ServerInitializePlayerSpecificNetworkIdentities()
+
+FinishStartHost() (WartideNetworkManager.cs, line 426),
+Calls NetworkClient.ConnectHost() (establishes local connection)
+Calls NetworkServer.SpawnObjects() (spawns all network objects)
+Calls StartHostClient()
+
+StartHostClient() (WartideNetworkManager.cs, line 467),
+Starts authenticator on client side if present
+Sets NetworkAddress = "localhost"
+Calls NetworkServer.ActivateHostScene()
+Calls RegisterClientMessages()
+Calls NetworkClient.ConnectLocalServer()
+Calls OnStartClient()
