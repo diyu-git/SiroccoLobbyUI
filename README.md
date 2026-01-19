@@ -27,6 +27,13 @@ Before installing this mod, you **must** have:
 
 > **⚠️ Important**: This mod does **not** include MelonLoader or any game files. You must install these separately.
 
+## 🛠️ Dependency Management
+
+This project uses **Git Submodules** to manage the `SLL` (SteamLobbyLib) dependency. This allows the library to be maintained independently while being integrated here.
+
+- **Source of Truth**: [https://github.com/diyu-git/SteamLobbyLib](https://github.com/diyu-git/SteamLobbyLib)
+- **Local Enhancements**: Any changes made to `SLL` within this project should be committed inside the `SLL` folder and pushed back to the main library repository to keep both projects in sync.
+
 ## 📦 Installation
 
 ### Option 1: Download Precompiled Release (Recommended)
