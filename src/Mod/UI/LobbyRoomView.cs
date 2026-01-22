@@ -193,7 +193,7 @@ namespace SiroccoLobby.UI
             }
             else
             {
-                GUILayout.Label("⚠ ProtoLobby not initialized", LobbyStyles.SteamIdStyle);
+                GUILayout.Label("ProtoLobby not initialized", LobbyStyles.SteamIdStyle);
                 GUILayout.Label("Press F5 to initialize game lobby", LobbyStyles.SteamIdStyle);
             }
             

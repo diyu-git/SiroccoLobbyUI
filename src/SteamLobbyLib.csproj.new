@@ -8,13 +8,13 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <!-- ✅ SAFE: MIT-licensed wrapper (can be redistributed) -->
+        <!-- SAFE: MIT-licensed wrapper (can be redistributed) -->
         <Reference Include="Steamworks.NET">
             <HintPath>..\..\steamworks\Steamworks.NET.dll</HintPath>
             <Private>True</Private>  <!-- Copy to output for distribution -->
         </Reference>
 
-        <!-- ❌ DO NOT COPY: These come from MelonLoader installation -->
+        <!-- DO NOT COPY: These come from MelonLoader installation -->
         <Reference Include="MelonLoader">
             <HintPath Condition="Exists('lib\MelonLoader.dll')">lib\MelonLoader.dll</HintPath>
             <HintPath Condition="!Exists('lib\MelonLoader.dll')">$(MELON_LOADER_PATH)\MelonLoader.dll</HintPath>
@@ -36,7 +36,7 @@
             <Private>False</Private>
         </Reference>
 
-        <!-- ❌ DO NOT COPY: These come from game installation -->
+        <!-- DO NOT COPY: These come from game installation -->
         <Reference Include="Il2Cppmscorlib">
             <HintPath Condition="Exists('lib\Il2Cppmscorlib.dll')">lib\Il2Cppmscorlib.dll</HintPath>
             <HintPath Condition="!Exists('lib\Il2Cppmscorlib.dll')">$(GAME_MANAGED_PATH)\Il2Cppmscorlib.dll</HintPath>
