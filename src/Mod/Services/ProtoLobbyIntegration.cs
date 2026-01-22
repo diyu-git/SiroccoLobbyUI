@@ -53,7 +53,7 @@ namespace SiroccoLobby.Services
 
         private Type? _networkServerType;
 
-        // ✅ PERFORMANCE: Cached reflection objects
+        // PERFORMANCE: Cached reflection objects
         private PropertyInfo? _captainsListProp;
         private PropertyInfo? _selectedIndexProp;
         private PropertyInfo? _selectedCaptainProp;
@@ -74,7 +74,7 @@ namespace SiroccoLobby.Services
         private PropertyInfo? _psIsTeamAProp;
         private PropertyInfo? _psIsConnectedProp;
         
-        // ✅ PERFORMANCE: Cached captain name property (found at runtime)
+        // PERFORMANCE: Cached captain name property (found at runtime)
         private PropertyInfo? _captainNameProp;
         private bool _hasLoggedCaptainDebug = false;
         private bool _captainNameSearchFailed = false; // Negative caching
@@ -760,7 +760,7 @@ namespace SiroccoLobby.Services
 
                 if (captain == null) return $"Captain {index + 1}";
 
-                // ✅ PERFORMANCE: Try cached property first
+                // PERFORMANCE: Try cached property first
                 if (_captainNameProp != null)
                 {
                     var nameValue = _captainNameProp.GetValue(captain);
@@ -770,7 +770,7 @@ namespace SiroccoLobby.Services
                     }
                 }
 
-                // ✅ PERFORMANCE: Negative caching - stop searching if we already failed
+                // PERFORMANCE: Negative caching - stop searching if we already failed
                 if (_captainNameSearchFailed) return $"Captain {index + 1}";
 
                 // First time: Find and cache the name property
@@ -783,7 +783,7 @@ namespace SiroccoLobby.Services
                         var nameValue = nameProp.GetValue(captain);
                         if (nameValue != null && !string.IsNullOrEmpty(nameValue.ToString()))
                         {
-                            _captainNameProp = nameProp;  // ✅ CACHE IT!
+                            _captainNameProp = nameProp;  // CACHE IT!
                             return nameValue?.ToString() ?? "Unknown";
                         }
                     }
@@ -799,7 +799,7 @@ namespace SiroccoLobby.Services
                         var nameValue = nameProp.GetValue(captain);
                         if (nameValue != null && !string.IsNullOrEmpty(nameValue.ToString()))
                         {
-                            _captainNameProp = nameProp;  // ✅ CACHE IT!
+                            _captainNameProp = nameProp;  // CACHE IT!
                             // MelonLogger.Msg($"[ProtoLobby] Found captain name property: {propName}");
                             return nameValue?.ToString() ?? "Unknown";
                         }
@@ -810,7 +810,7 @@ namespace SiroccoLobby.Services
                 if (!_hasLoggedCaptainDebug)
                 {
                     _hasLoggedCaptainDebug = true;
-                    _captainNameSearchFailed = true; // ✅ Mark as failed so we don't try again
+                    _captainNameSearchFailed = true; // Mark as failed so we don't try again
                     
                     MelonLogger.Warning($"[ProtoLobby] Could not find name property for type {captainType.Name}. Available properties:");
                     foreach(var p in captainType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
@@ -971,6 +971,16 @@ namespace SiroccoLobby.Services
                 // Call NetworkClient.Ready()
                 // MelonLogger.Msg("[ProtoLobby] Calling NetworkClient.Ready()...");
                 _networkClientReadyMethod.Invoke(null, null);
+                
+                // Check if localPlayer already exists (safety check from game code)
+                var localPlayerProp = _networkClientType?.GetProperty("localPlayer", BindingFlags.Public | BindingFlags.Static);
+                var localPlayer = localPlayerProp?.GetValue(null);
+                
+                if (localPlayer != null)
+                {
+                    MelonLogger.Msg("[ProtoLobby] NetworkClient.localPlayer already exists, skipping AddPlayer");
+                    return;
+                }
                 
                 // Call NetworkClient.AddPlayer() with captain and team info
                 // Check how many parameters the found AddPlayer method wants

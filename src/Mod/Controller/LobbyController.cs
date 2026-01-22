@@ -58,6 +58,12 @@ namespace SiroccoLobby.Controller
 
         public void JoinLobby(object lobbyId)
         {
+            // CRITICAL FIX: Get and store host Steam ID BEFORE joining
+            // This will be used for Riptide P2P connection in OnLobbyEntered
+            _state.HostSteamId = _steam.GetLobbyOwner(lobbyId)?.ToString() ?? "";
+            
+            _log.Msg($"[Client] Joining lobby hosted by SteamID64: {_state.HostSteamId}");
+            
             if (_state.ShowDebugUI) _log.Msg($"Joining lobby: {lobbyId}");
             _steam.JoinLobby(lobbyId); // Trigger API
             // Event will trigger OnLobbyEntered via Plugin
@@ -93,13 +99,21 @@ namespace SiroccoLobby.Controller
              _steam.SetLobbyMemberData(lobbyId, "captain_index", _state.SelectedCaptainIndex.ToString());
              _steam.SetLobbyMemberData(lobbyId, "is_ready", "False");
              
-             // CRITICAL: If client, connect to game server via Steam P2P
+             // CRITICAL: If client, connect to game server via Riptide P2P
              if (!_state.IsHost)
              {
-                 _log.Msg("[Client] Initiating P2P connection to game server...");
+                 // CRITICAL FIX: Use HostSteamId (SteamID64 string) for Riptide connection
+                 if (string.IsNullOrEmpty(_state.HostSteamId))
+                 {
+                     _log.Error("[Client] HostSteamId is null! Cannot connect to game server.");
+                     _log.Error("[Client] This should have been set in JoinLobby()");
+                     return;
+                 }
+                 
+                 _log.Msg($"[Client] Initiating Riptide P2P connection to host {_state.HostSteamId}...");
                  if (_protoLobby != null && _protoLobby.IsReady)
                  {
-                     _protoLobby.ConnectToGameServer();
+                     _protoLobby.ConnectToGameServer(_state.HostSteamId);
                  }
                  else
                  {
@@ -266,16 +280,36 @@ namespace SiroccoLobby.Controller
             //
             if (_state.IsLocalReady)
             {
+                // CRITICAL CHECK: Verify NetworkClient is connected before calling Ready()
+                if (_protoLobby == null || !_protoLobby.IsReady)
+                {
+                    _log.Error("[Client] ProtoLobby not ready! Cannot complete ready flow.");
+                    _state.IsLocalReady = false; // Revert ready state
+                    if (_state.CurrentLobby != null)
+                        _steam.SetLobbyMemberData(_state.CurrentLobby, "is_ready", "False");
+                    return;
+                }
+                
+                if (!_protoLobby.IsConnected)
+                {
+                    _log.Error("[Client] NetworkClient not connected! Cannot call Ready().");
+                    _log.Error("[Client] Wait for P2P connection to establish before readying up.");
+                    _state.IsLocalReady = false; // Revert ready state
+                    if (_state.CurrentLobby != null)
+                        _steam.SetLobbyMemberData(_state.CurrentLobby, "is_ready", "False");
+                    return;
+                }
+                
                 _log.Msg("[Client] Ready pressed – running vanilla Ready flow");
 
                 // 1. Native: CompleteProtoLobbyClient()
-                _protoLobby?.CompleteProtoLobbyClient();
+                _protoLobby.CompleteProtoLobbyClient();
 
                 // 2. Mirror: Ready()
-                _protoLobby?.CallNetworkClientReady(_state.SelectedCaptainIndex, _state.SelectedTeam);
+                _protoLobby.CallNetworkClientReady(_state.SelectedCaptainIndex, _state.SelectedTeam);
 
                 // 3. SteamP2P validation
-                _protoLobby?.ValidatePlayersReadyForGameStart();
+                _protoLobby.ValidatePlayersReadyForGameStart();
             }
             else
             {

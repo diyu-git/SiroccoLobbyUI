@@ -6,16 +6,16 @@ A custom Steam lobby browser and multiplayer room UI for **Sirocco** (5v5 naval 
 ![.NET](https://img.shields.io/badge/.NET-6.0-purple.svg)
 ![MelonLoader](https://img.shields.io/badge/MelonLoader-required-orange.svg)
 
-## ✨ Features
+## Features
 
-- **🔍 Lobby Browser**: Browse and filter available Steam lobbies with real-time updates
-- **⚓ 5v5 Lobby Room**: 10 player slots with team assignments and ready status
-- **📜 Event Log**: Real-time system messages for player joins, leaves, and state changes
-- **🌊 Naval Theme**: Ocean-inspired UI with teals, blues, and aqua accents
-- **🎮 Steam Integration**: Seamless integration with Steam's P2P networking
-- **🎯 Captain Selection**: In-lobby captain selection with game-specific integration
+- **Lobby Browser**: Browse and filter available Steam lobbies with real-time updates
+- **5v5 Lobby Room**: 10 player slots with team assignments and ready status
+- **Event Log**: Real-time system messages for player joins, leaves, and state changes
+- **Naval Theme**: Ocean-inspired UI with teals, blues, and aqua accents
+- **Steam Integration**: Seamless integration with Steam's P2P networking
+- **Captain Selection**: In-lobby captain selection with game-specific integration
 
-## ⚠️ Requirements
+## Requirements
 
 Before installing this mod, you **must** have:
 
@@ -25,16 +25,16 @@ Before installing this mod, you **must** have:
    - Download from: https://github.com/LavaGang/MelonLoader/releases
    - Follow the official installation guide
 
-> **⚠️ Important**: This mod does **not** include MelonLoader or any game files. You must install these separately.
+> **Important**: This mod does **not** include MelonLoader or any game files. You must install these separately.
 
-## 🛠️ Dependency Management
+## Dependency Management
 
 This project uses **Git Submodules** to manage the `SLL` (SteamLobbyLib) dependency. This allows the library to be maintained independently while being integrated here.
 
 - **Source of Truth**: [https://github.com/diyu-git/SteamLobbyLib](https://github.com/diyu-git/SteamLobbyLib)
 - **Local Enhancements**: Any changes made to `SLL` within this project should be committed inside the `SLL` folder and pushed back to the main library repository to keep both projects in sync.
 
-## 📦 Installation
+## Installation
 
 ### Option 1: Download Precompiled Release (Recommended)
 
@@ -57,18 +57,21 @@ See [BUILDING.md](BUILDING.md) for detailed build instructions.
 git clone https://github.com/diyu-git/SiroccoLobbyUI.git
 cd SiroccoLobbyUI
 
+# Initialize submodules (if using SLL)
+git submodule update --init --recursive
+
 # Configure your game path (create Directory.Build.props.user)
 # See BUILDING.md for details
 
 # Build
-dotnet build SLL/SteamLobbyLib/SteamLobbyLib.csproj -c Release
+dotnet build src/SteamLobbyLib.csproj -c Release
 
 # Copy to game
-cp SLL/SteamLobbyLib/bin/Release/net6.0/SiroccoLobbyUI.dll "<Steam>/steamapps/common/Sirocco/Mods/"
-cp SLL/SteamLobbyLib/bin/Release/net6.0/Steamworks.NET.dll "<Steam>/steamapps/common/Sirocco/Mods/"
+cp src/bin/Release/net6.0/SiroccoLobbyUI.dll "<Steam>/steamapps/common/Sirocco/Mods/"
+cp src/bin/Release/net6.0/Steamworks.NET.dll "<Steam>/steamapps/common/Sirocco/Mods/"
 ```
 
-## 🎮 Usage
+## Usage
 
 | Action | Keybind/Method |
 |--------|----------------|
@@ -80,7 +83,7 @@ cp SLL/SteamLobbyLib/bin/Release/net6.0/Steamworks.NET.dll "<Steam>/steamapps/co
 | **Start game** | Host clicks "Start Game" when all players are ready |
 | **Leave lobby** | Click "Leave Lobby" |
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 Steam API → SteamLobbyManager → ISteamLobbyService → LobbyController → UI Views
@@ -97,29 +100,39 @@ Steam API → SteamLobbyManager → ISteamLobbyService → LobbyController → U
 - **`LobbyBrowserView`**: IMGUI-based lobby browser
 - **`LobbyRoomView`**: IMGUI-based 5v5 lobby room with player slots
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-SiroccoLobbySystem/
-├── SLL/
-│   ├── SteamLobbyLib/              # Main mod project
-│   │   ├── Mod/
-│   │   │   ├── Controller/         # Lobby and captain selection controllers
-│   │   │   ├── Model/              # Lobby state and member models
-│   │   │   ├── Services/           # Steam integration and game bridges
-│   │   │   ├── UI/                 # IMGUI views and styles
-│   │   │   └── Plugin.cs           # MelonLoader entry point
-│   │   ├── Interfaces.cs           # Core domain interfaces
-│   │   ├── LobbyData.cs            # Lobby data structures
-│   │   └── SteamLobbyManager.cs    # Steam API wrapper
+SiroccoLobbyUI/
+├── src/                            # Main mod project
+│   ├── Mod/
+│   │   ├── Controller/             # Lobby and captain selection controllers
+│   │   ├── Model/                  # Lobby state and member models
+│   │   ├── Services/               # Steam integration and game bridges
+│   │   ├── UI/                     # IMGUI views and styles
+│   │   └── Plugin.cs               # MelonLoader entry point
+│   ├── Interfaces.cs               # Core domain interfaces
+│   ├── LobbyData.cs                # Lobby data structures
+│   ├── SteamLobbyManager.cs        # Steam API wrapper
+│   └── SteamLobbyLib.csproj        # Project file
+├── SLL/                            # SteamLobbyLib submodule (legacy)
 │   └── steamworks/
 │       └── Steamworks.NET.dll      # MIT-licensed Steam wrapper
+├── docs/                           # Documentation
+│   └── CLIENT_CONNECTION_FLOW.md   # Client connection architecture
 ├── BUILDING.md                     # Build instructions
 ├── THIRD_PARTY_LICENSES.md         # Third-party attributions
 └── README.md                       # This file
 ```
 
-## 🤝 Contributing
+## Documentation
+
+- **[Client Connection Flow](docs/CLIENT_CONNECTION_FLOW.md)**: Detailed explanation of how clients connect to hosted games via Riptide P2P networking
+- **[Building Guide](BUILDING.md)**: Build instructions and troubleshooting
+- **[Third-Party Licenses](THIRD_PARTY_LICENSES.md)**: Attribution for dependencies
+
+
+## Contributing
 
 Contributions are welcome! Please:
 
@@ -129,7 +142,7 @@ Contributions are welcome! Please:
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
 This mod is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
@@ -137,19 +150,19 @@ This mod is licensed under the **MIT License**. See [LICENSE](LICENSE) for detai
 
 This project uses **Steamworks.NET** (MIT License). See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for full attribution.
 
-## ⚖️ Legal Disclaimer
+## Legal Disclaimer
 
 **Important**: This mod includes minimal dependencies:
 
-- ✅ **Steamworks.NET.dll** (MIT licensed wrapper) is included
-- ⚠️ **steam_api64.dll** (Steamworks SDK) is included for convenience, but you can also use the one from your game installation
-- ❌ **Game assemblies** are not included
-- ❌ **MelonLoader** must be installed separately
-- ❌ **Unity runtime files** are not redistributed
+- **Steamworks.NET.dll** (MIT licensed wrapper) is included
+- **steam_api64.dll** (Steamworks SDK) is included for convenience, but you can also use the one from your game installation
+- **Game assemblies** are not included
+- **MelonLoader** must be installed separately
+- **Unity runtime files** are not redistributed
 
 This is an **independent mod** and is **not affiliated with or endorsed by** the developers or publishers of Sirocco. All game-related trademarks and copyrights belong to their respective owners.
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Mod doesn't load
 
@@ -175,19 +188,13 @@ This is an **independent mod** and is **not affiliated with or endorsed by** the
 
 See [BUILDING.md](BUILDING.md) for detailed troubleshooting.
 
-## 🔗 Links
+## Links
 
 - **Report Issues**: [GitHub Issues](https://github.com/diyu-git/SiroccoLobbyUI/issues)
 - **MelonLoader**: https://github.com/LavaGang/MelonLoader
 - **Steamworks.NET**: https://github.com/rlabrecque/Steamworks.NET
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **Riley Labrecque** for Steamworks.NET
 - **LavaGang** for MelonLoader
-- **Blizzard Entertainment** for Battle.net UI inspiration
-- The Sirocco modding community
-
----
-
-**Made with ⚓ for the Sirocco community**
