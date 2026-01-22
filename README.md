@@ -155,12 +155,10 @@ This project uses **Steamworks.NET** (MIT License). See [THIRD_PARTY_LICENSES.md
 **Important**: This mod includes minimal dependencies:
 
 - **Steamworks.NET.dll** (MIT licensed wrapper) is included
-- **steam_api64.dll** (Steamworks SDK) is included for convenience, but you can also use the one from your game installation
-- **Game assemblies** are not included
 - **MelonLoader** must be installed separately
 - **Unity runtime files** are not redistributed
 
-This is an **independent mod** and is **not affiliated with or endorsed by** the developers or publishers of Sirocco. All game-related trademarks and copyrights belong to their respective owners.
+This is an **independent mod** and is **not affiliated with** the developers or publishers of Sirocco. All game-related trademarks and copyrights belong to their respective owners.
 
 ## Troubleshooting
 
