@@ -248,7 +248,8 @@ namespace SiroccoLobby.Services.Core
                 ?? methods.FirstOrDefault(m => m.Name == "AddPlayer" && m.GetParameters().Length == 0);
 
             // Auth gating
-            NetworkClientIsAuthenticatedProp = NetworkClientType.GetProperty("isAuthenticated", BindingFlags.Public | BindingFlags.Static);
+            // NetworkClientType can be null if Mirror types weren't discovered.
+            NetworkClientIsAuthenticatedProp = NetworkClientType?.GetProperty("isAuthenticated", BindingFlags.Public | BindingFlags.Static);
         }
 
         private void InitializeNetworkServer(Assembly[] assemblies)
@@ -289,9 +290,9 @@ namespace SiroccoLobby.Services.Core
             ValidatePlayersReadyMethod = TesterType?.GetMethod("ValidatePlayersReadyForGameStart", BindingFlags.Public | BindingFlags.Instance);
 
             // Proto-lobby related methods on the tester.
-            IntegrateWithProtoLobbyMethod = TesterType.GetMethod("IntegrateWithProtoLobby", BindingFlags.Public | BindingFlags.Instance);
-            CompleteSteamP2PProtoLobbyMethod = TesterType.GetMethod("CompleteSteamP2PProtoLobby", BindingFlags.Public | BindingFlags.Instance);
-            DisplayProtoLobbyPlayerStatusMethod = TesterType.GetMethod("DisplayProtoLobbyPlayerStatus", BindingFlags.NonPublic | BindingFlags.Instance);
+            IntegrateWithProtoLobbyMethod = TesterType?.GetMethod("IntegrateWithProtoLobby", BindingFlags.Public | BindingFlags.Instance);
+            CompleteSteamP2PProtoLobbyMethod = TesterType?.GetMethod("CompleteSteamP2PProtoLobby", BindingFlags.Public | BindingFlags.Instance);
+            DisplayProtoLobbyPlayerStatusMethod = TesterType?.GetMethod("DisplayProtoLobbyPlayerStatus", BindingFlags.NonPublic | BindingFlags.Instance);
         }
 
         private static object? TryFindUnityObjectInstance(Type unityObjectType)
