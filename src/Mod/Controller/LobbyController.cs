@@ -2,30 +2,38 @@ using SiroccoLobby.Model;
 using SiroccoLobby.Services;
 using MelonLoader;
 using UnityEngine;
+using SteamLobbyLib;
 namespace SiroccoLobby.Controller
 {
     using System.Linq;
     using Il2CppInterop.Runtime;
     using Il2CppInterop.Runtime.InteropTypes;
     using SiroccoLobby.Helpers;
+    using SiroccoLobby.Services.Helpers;
 
-    public sealed class LobbyController
+    public sealed class LobbyController : ILobbyEvents
     {
         private readonly LobbyState _state;
         private readonly ISteamLobbyService _steam;
+        private readonly SteamLobbyServiceWrapper? _wrapper;
         private readonly ProtoLobbyIntegration _protoLobby; // Added
         private readonly MelonLogger.Instance _log;
+        private readonly CaptainSelectionController? _captainController;
 
         public LobbyController(
             LobbyState state,
             ISteamLobbyService steam,
             ProtoLobbyIntegration protoLobby, // Added
-            MelonLogger.Instance log)
+            MelonLogger.Instance log,
+            SteamLobbyServiceWrapper? wrapper = null,
+            CaptainSelectionController? captainController = null)
         {
             _state = state;
             _steam = steam;
             _protoLobby = protoLobby; // Added
             _log = log;
+            _wrapper = wrapper;
+            _captainController = captainController;
         }
 
         public void RefreshLobbyList()
@@ -120,6 +128,9 @@ namespace SiroccoLobby.Controller
                      _log.Error("[Client] ProtoLobby not ready! Cannot connect to game server.");
                  }
              }
+
+            // Reset captain selection controller state for this lobby
+            try { _captainController?.Reset(); } catch { }
         }
 
         public void RefreshLobbyData()
@@ -142,28 +153,273 @@ namespace SiroccoLobby.Controller
 
             // Lobby Name - Sync to cache via the new plumbing
             _state.CachedLobbyName = _steam.GetLobbyName(lobbyId);
+            // Current counts
+            _state.CurrentLobbyMemberCount = _steam.GetMemberCount(lobbyId);
+            _state.CurrentLobbyMaxPlayers = _steam.GetMemberLimit(lobbyId);
         }
 
+        // Build a UI-friendly cache of lobby summaries so Views don't call Steam directly
+        public void RebuildLobbyCache()
+        {
+            var list = new System.Collections.Generic.List<SiroccoLobby.Model.LobbySummary>();
+            foreach (var lobbyId in _state.CachedLobbies)
+            {
+                string name = _steam.GetLobbyData(lobbyId, "name");
+                if (string.IsNullOrEmpty(name)) name = "Unnamed Lobby";
+
+                int current = _steam.GetMemberCount(lobbyId);
+                int max = _steam.GetMemberLimit(lobbyId);
+
+                list.Add(new SiroccoLobby.Model.LobbySummary
+                {
+                    LobbyId = lobbyId,
+                    Name = name,
+                    CurrentPlayers = current,
+                    MaxPlayers = max,
+                    IsFull = current >= max
+                });
+            }
+
+            _state.UpdateAvailableLobbies(list);
+        }
+
+        // Update a single lobby summary (cheap, incremental) and upsert it into state
+        public void UpdateLobbySummary(object lobbyId)
+        {
+            try
+            {
+                string name = _steam.GetLobbyData(lobbyId, "name");
+                if (string.IsNullOrEmpty(name)) name = "Unnamed Lobby";
+
+                int current = _steam.GetMemberCount(lobbyId);
+                int max = _steam.GetMemberLimit(lobbyId);
+
+                var summary = new SiroccoLobby.Model.LobbySummary
+                {
+                    LobbyId = lobbyId,
+                    Name = name,
+                    CurrentPlayers = current,
+                    MaxPlayers = max,
+                    IsFull = current >= max
+                };
+
+                _state.UpdateOrAddLobbySummary(summary);
+            }
+            catch (System.Exception ex)
+            {
+                _log.Error($"UpdateLobbySummary failed for {lobbyId}: {ex.Message}");
+            }
+        }
+
+        // Pending batch support for incremental updates (moved from Plugin)
+        private readonly System.Collections.Generic.HashSet<ulong> _pendingLobbyUpdates = new System.Collections.Generic.HashSet<ulong>();
+        private float _pendingBatchAt = 0f;
+        private const float BATCH_DEBOUNCE_SECONDS = 0.2f;
+
+        public void AddPendingLobbyUpdate(ulong lobbyId)
+        {
+            _pendingLobbyUpdates.Add(lobbyId);
+            _pendingBatchAt = Time.realtimeSinceStartup;
+        }
+
+        public void ProcessPendingBatch()
+        {
+            if (_pendingLobbyUpdates.Count == 0) return;
+            if (Time.realtimeSinceStartup - _pendingBatchAt < BATCH_DEBOUNCE_SECONDS) return;
+
+            var toProcess = _pendingLobbyUpdates.ToArray();
+            _pendingLobbyUpdates.Clear();
+
+            foreach (var id in toProcess)
+            {
+                UpdateLobbySummary(id);
+            }
+        }
+
+        // Refresh member list using the mod wrapper (maps DTO -> mod model)
+        public void RefreshMembers(object lobbyId)
+        {
+            if (_wrapper == null) return;
+            var members = _wrapper.GetLobbyMembersModel(lobbyId) ?? System.Linq.Enumerable.Empty<LobbyMember>();
+            _state.UpdateMembers(members.ToList());
+        }
+
+        // ILobbyEvents implementation (receive callbacks from the library)
+        public void OnLobbyListReceived(System.Collections.Generic.List<LobbyData> lobbies)
+        {
+            if (_state.ShowDebugUI) _log.Msg($"[Events] Lobby list received: {lobbies.Count} lobbies");
+            _state.UpdateLobbyList(lobbies.Select(l => (object)l.Id.Value));
+            RebuildLobbyCache();
+        }
+
+        public void OnLobbyJoined(LobbyId lobbyId)
+        {
+            if (_state.ShowDebugUI) _log.Msg($"[Events] Joined lobby: {lobbyId.Value}");
+            OnLobbyEntered(lobbyId.Value);
+            // Trigger immediate member refresh
+            RefreshMembers(lobbyId.Value);
+        }
+
+        public void OnLobbyDataUpdated(LobbyId lobbyId)
+        {
+            if (_state.CurrentLobby == null) return;
+            ulong current = 0;
+            if (_state.CurrentLobby is ulong u) current = u;
+            else if (_state.CurrentLobby is Steamworks.CSteamID c) current = c.m_SteamID;
+
+            if (current != lobbyId.Value) return;
+
+            if (_state.ShowDebugUI) _log.Msg($"[Events] Current lobby updated");
+            RefreshLobbyData();
+            RefreshMembers(lobbyId.Value);
+            AddPendingLobbyUpdate(lobbyId.Value);
+        }
+
+        public void OnLobbyMemberChanged(LobbyId lobbyId, LobbyId memberId, Steamworks.EChatMemberStateChange change)
+        {
+            if (_state.CurrentLobby == null) return;
+            ulong current = 0;
+            if (_state.CurrentLobby is ulong u) current = u;
+            else if (_state.CurrentLobby is Steamworks.CSteamID c) current = c.m_SteamID;
+
+            if (current != lobbyId.Value) return;
+
+            if (_state.ShowDebugUI) _log.Msg($"[Events] Member {change}");
+            RefreshMembers(lobbyId.Value);
+            AddPendingLobbyUpdate(lobbyId.Value);
+        }
+
+        // Allow views to request simple info from controller (avoids view calling _steam directly)
+        public string GetLocalSteamIdString()
+        {
+            var id = _steam.GetLocalSteamId();
+            return id?.ToString() ?? string.Empty;
+        }
+
+        public ulong GetLocalSteamIdULong()
+        {
+            var id = _steam.GetLocalSteamId();
+            if (id == null) return 0UL;
+            if (id is ulong ul) return ul;
+            // Try Steamworks type
+            try
+            {
+                if (id is Steamworks.CSteamID cs) return cs.m_SteamID;
+            }
+            catch { }
+
+            if (ulong.TryParse(id.ToString(), out var parsed)) return parsed;
+            return 0UL;
+        }
+
+        /// <summary>
+        /// Compare a Steam id (which may be stored as ulong, CSteamID, or string) against the local Steam id.
+        /// Views should call this instead of trying to inspect Steam types themselves.
+        /// </summary>
+        public bool IsLocalSteamId(object? steamId)
+        {
+            if (steamId == null) return false;
+
+            // Fast path: stored as ulong
+            if (steamId is ulong ul) return ul == GetLocalSteamIdULong();
+
+            // Steamworks type
+            try
+            {
+                if (steamId is Steamworks.CSteamID cs) return cs.m_SteamID == GetLocalSteamIdULong();
+            }
+            catch { }
+
+            // Try to parse string representations
+            if (ulong.TryParse(steamId.ToString(), out var parsed)) return parsed == GetLocalSteamIdULong();
+
+            return false;
+        }
+
+        // New, explicit operations that separate concerns between Steam, network and local state
+        public enum LobbyEndMode
+        {
+            StartGame,
+            UserLeave,
+            ApplicationQuit
+        }
+
+        public void ExitSteamLobby(object? lobbyId = null)
+        {
+            var target = lobbyId ?? _state.CurrentLobby;
+            if (target == null) return;
+            if (_state.ShowDebugUI) _log.Msg($"Exiting Steam lobby: {target}");
+            try
+            {
+                _steam.LeaveLobby(target);
+            }
+            catch (System.Exception ex)
+            {
+                _log.Error($"Error while exiting Steam lobby: {ex.Message}");
+            }
+        }
+
+        public void ShutdownLobbyNetworkIfOwned(bool? wasHost = null)
+        {
+            if (_protoLobby == null) return;
+
+            bool host = wasHost ?? _state.IsHost;
+            // If we're not host and not connected, nothing to do
+            if (!host && !_protoLobby.IsConnected) return;
+
+            if (_state.ShowDebugUI) _log.Msg("Shutting down lobby network (owned)");
+            try
+            {
+                _protoLobby.ShutdownNetwork(host);
+            }
+            catch (System.Exception ex)
+            {
+                _log.Error($"Error while shutting down network: {ex.Message}");
+            }
+        }
+
+        public void ClearLobbyState()
+        {
+            if (_state.ShowDebugUI) _log.Msg("Clearing local lobby state");
+            _state.ClearLobby();
+        }
+
+        // High-level API encoding intent instead of mechanics
+        public void EndLobby(LobbyEndMode mode)
+        {
+            // Capture current values to avoid races with Steam callbacks
+            var lobby = _state.CurrentLobby;
+            var wasHost = _state.IsHost;
+
+            switch (mode)
+            {
+                case LobbyEndMode.StartGame:
+                    // Leave Steam (prevent hangs), keep network running for gameplay, clear UI state
+                    ExitSteamLobby(lobby);
+                    ClearLobbyState();
+                    break;
+
+                case LobbyEndMode.UserLeave:
+                    // User explicitly left: exit Steam, shutdown network if we own it, clear state
+                    ExitSteamLobby(lobby);
+                    ShutdownLobbyNetworkIfOwned(wasHost);
+                    ClearLobbyState();
+                    break;
+
+                case LobbyEndMode.ApplicationQuit:
+                    // Best-effort cleanup during app quit
+                    try { ExitSteamLobby(lobby); } catch {}
+                    try { ShutdownLobbyNetworkIfOwned(wasHost); } catch {}
+                    ClearLobbyState();
+                    break;
+            }
+        }
+
+        // Backwards-compatible wrapper for existing callers. Prefer EndLobby(LobbyEndMode).
         public void LeaveLobby(bool shutdownNetwork = true)
         {
-            if (_state.CurrentLobby != null)
-            {
-                if (_state.IsHost)
-                {
-                    _log.Msg("Host leaving lobby. Server may need manual shutdown (F1).");
-                }
-
-                if (_state.ShowDebugUI) _log.Msg($"Leaving lobby: {_state.CurrentLobby} (ShutdownNetwork={shutdownNetwork})");
-                _steam.LeaveLobby(_state.CurrentLobby);
-                
-                if (shutdownNetwork)
-                {
-                     bool wasHost = _state.IsHost;
-                    _protoLobby.ShutdownNetwork(wasHost);
-                }
-                
-                _state.ClearLobby();
-            }
+            if (shutdownNetwork) EndLobby(LobbyEndMode.UserLeave);
+            else EndLobby(LobbyEndMode.StartGame);
         }
         
         public void SelectCaptainAndTeam(int captainIndex, int teamIndex)
@@ -210,6 +466,9 @@ namespace SiroccoLobby.Controller
              }
              
              _log.Msg($"Selected Captain {captainIndex}, Team {teamIndex}");
+
+            // Forward selection to captain controller if present
+            try { _captainController?.SelectCaptain(captainIndex); } catch { }
         }
 
         public void ToggleReady_Host()
@@ -232,6 +491,13 @@ namespace SiroccoLobby.Controller
             {
                 _protoLobby?.CallNetworkClientReady(_state.SelectedCaptainIndex, _state.SelectedTeam);
             }
+        }
+
+        public uint HashprotoLobbyPlayerId(string protoLobbyPlayerId)
+        {
+            uint rpcId = StringToUintFNV1a.Compute(protoLobbyPlayerId);
+            MelonLogger.Msg($"[ProtoTrace] RPC hash = {rpcId}");
+            return rpcId;
         }
 
         public void ToggleReady()
@@ -302,20 +568,17 @@ namespace SiroccoLobby.Controller
                 
                 _log.Msg("[Client] Ready pressed – running vanilla Ready flow");
 
-                // 1. Native: CompleteProtoLobbyClient()
-                _protoLobby.CompleteProtoLobbyClient();
-
-                // 2. Mirror: Ready()
+                // 1. Mirror: Ready()
                 _protoLobby.CallNetworkClientReady(_state.SelectedCaptainIndex, _state.SelectedTeam);
 
-                // 3. SteamP2P validation
-                _protoLobby.ValidatePlayersReadyForGameStart();
+                // 2. Native: CompleteProtoLobbyClient()
+                _protoLobby.CompleteProtoLobbyClient();
             }
             else
             {
                 // Unready path
                 _state.HasCalledAddPlayer = false;
-                _log.Msg("[Client] Unready – Resetting AddPlayer latch");
+                _log.Msg("[Client] Unready Resetting AddPlayer latch");
             }
         }
 
@@ -400,8 +663,12 @@ namespace SiroccoLobby.Controller
 
             _log.Msg("[Host] Completing ProtoLobby...");
             
-            // Clean up lobby to prevent Steam hangs on shutdown
-            LeaveLobby(false);
+            // Capture current lobby/host to avoid races then exit Steam lobby and clear UI state
+            var lobby = _state.CurrentLobby;
+            var wasHost = _state.IsHost;
+
+            ExitSteamLobby(lobby);
+            ClearLobbyState();
             
             _protoLobby.CompleteProtoLobbyServer();
 

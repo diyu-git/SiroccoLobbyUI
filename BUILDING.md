@@ -71,21 +71,21 @@ export GAME_INSTALL_PATH="$HOME/.steam/steam/steamapps/common/Sirocco"
 ### Debug Build (for development)
 
 ```bash
-dotnet build SLL/SteamLobbyLib/SteamLobbyLib.csproj
+dotnet build src/SteamLobbyLib.csproj
 ```
 
 ### Release Build (for distribution)
 
 ```bash
-dotnet build SLL/SteamLobbyLib/SteamLobbyLib.csproj -c Release
+dotnet build src/SteamLobbyLib.csproj -c Release
 ```
 
 ## Step 4: Locate the Output
 
 After building, you'll find the compiled mod at:
 
-- **Debug**: `SLL/SteamLobbyLib/bin/Debug/net6.0/SiroccoLobbyUI.dll`
-- **Release**: `SLL/SteamLobbyLib/bin/Release/net6.0/SiroccoLobbyUI.dll`
+- **Debug**: `src/bin/Debug/net6.0/SiroccoLobbyUI.dll`
+- **Release**: `src/bin/Release/net6.0/SiroccoLobbyUI.dll`
 
 You'll also find `Steamworks.NET.dll` in the same directory.
 
@@ -95,14 +95,14 @@ Copy the compiled files to your game's Mods folder:
 
 ```bash
 # Windows (PowerShell)
-Copy-Item "SLL\SteamLobbyLib\bin\Release\net6.0\SiroccoLobbyUI.dll" "$env:GAME_INSTALL_PATH\Mods\"
-Copy-Item "SLL\SteamLobbyLib\bin\Release\net6.0\Steamworks.NET.dll" "$env:GAME_INSTALL_PATH\Mods\"
+Copy-Item "src\bin\Release\net6.0\SiroccoLobbyUI.dll" "$env:GAME_INSTALL_PATH\Mods\"
+Copy-Item "src\bin\Release\net6.0\Steamworks.NET.dll" "$env:GAME_INSTALL_PATH\Mods\"
 ```
 
 ```bash
 # Linux/Mac
-cp SLL/SteamLobbyLib/bin/Release/net6.0/SiroccoLobbyUI.dll "$GAME_INSTALL_PATH/Mods/"
-cp SLL/SteamLobbyLib/bin/Release/net6.0/Steamworks.NET.dll "$GAME_INSTALL_PATH/Mods/"
+cp src/bin/Release/net6.0/SiroccoLobbyUI.dll "$GAME_INSTALL_PATH/Mods/"
+cp src/bin/Release/net6.0/Steamworks.NET.dll "$GAME_INSTALL_PATH/Mods/"
 ```
 
 > **Tip**: If you configured `GAME_INSTALL_PATH` correctly, the build will automatically copy the mod to your Mods folder.
@@ -142,15 +142,15 @@ To create a distributable ZIP for GitHub releases:
 
 ```bash
 # Build in Release mode
-dotnet build SLL/SteamLobbyLib/SteamLobbyLib.csproj -c Release
+dotnet build src/SteamLobbyLib.csproj -c Release
 
 # Create release directory
 mkdir release
 cd release
 
 # Copy only the necessary files
-cp ../SLL/SteamLobbyLib/bin/Release/net6.0/SiroccoLobbyUI.dll .
-cp ../SLL/SteamLobbyLib/bin/Release/net6.0/Steamworks.NET.dll .
+cp ../src/bin/Release/net6.0/SiroccoLobbyUI.dll .
+cp ../src/bin/Release/net6.0/Steamworks.NET.dll .
 cp ../README.md README.txt
 cp ../LICENSE LICENSE.txt
 

@@ -10,7 +10,6 @@ namespace SiroccoLobby.UI
     {
         private readonly LobbyState _state;
         private readonly LobbyController _controller;
-        private readonly ISteamLobbyService _steam;
         private readonly MelonLogger.Instance _log;
 
         private Vector2 _scrollPosition;
@@ -18,12 +17,10 @@ namespace SiroccoLobby.UI
         public LobbyBrowserView(
             LobbyState state, 
             LobbyController controller, 
-            ISteamLobbyService steam,
             MelonLogger.Instance log)
         {
             _state = state;
             _controller = controller;
-            _steam = steam;
             _log = log;
         }
 
@@ -63,31 +60,28 @@ namespace SiroccoLobby.UI
                 
                 _scrollPosition = GUILayout.BeginScrollView(_scrollPosition, GUILayout.ExpandHeight(true));
                 
-                if (_state.CachedLobbies.Count == 0)
+                if (_state.AvailableLobbies.Count == 0)
                 {
                     GUILayout.Label("No lobbies found. Create one to start a battle!", LobbyStyles.HeaderStyle);
                 }
                 else
                 {
-                    foreach (var lobbyId in _state.CachedLobbies)
+                    foreach (var lobby in _state.AvailableLobbies)
                     {
                         GUILayout.BeginHorizontal(LobbyStyles.LobbyCardStyle);
-                        
-                        string lobbyName = _steam.GetLobbyData(lobbyId, "name");
-                        if (string.IsNullOrEmpty(lobbyName)) lobbyName = "Unnamed Lobby";
-                        
-                        int currentPlayers = _steam.GetMemberCount(lobbyId);
-                        int maxPlayers = _steam.GetMemberLimit(lobbyId);
+                        string lobbyName = lobby.Name;
+                        int currentPlayers = lobby.CurrentPlayers;
+                        int maxPlayers = lobby.MaxPlayers;
                         
                         GUILayout.Label($"{lobbyName}", GUILayout.Width(300));
                         GUILayout.FlexibleSpace();
                         GUILayout.Label($"{currentPlayers}/{maxPlayers}", GUILayout.Width(100));
                         
-                        bool isFull = currentPlayers >= maxPlayers;
+                        bool isFull = lobby.IsFull;
                         GUI.enabled = !isFull;
                         if (GUILayout.Button(isFull ? "FULL" : "Join", LobbyStyles.ButtonStyle, GUILayout.Width(100)))
                         {
-                            _controller.JoinLobby(lobbyId);
+                            _controller.JoinLobby(lobby.LobbyId);
                         }
                         GUI.enabled = true;
                         
@@ -103,7 +97,7 @@ namespace SiroccoLobby.UI
                 GUILayout.BeginHorizontal();
                 GUILayout.Label("Press F5 to close | Naval warfare awaits, Captain!", LobbyStyles.SteamIdStyle);
                 GUILayout.FlexibleSpace();
-                GUILayout.Label($"My Steam ID: {_steam.GetLocalSteamId()}", LobbyStyles.SteamIdStyle);
+                GUILayout.Label($"My Steam ID: {_controller.GetLocalSteamIdString()}", LobbyStyles.SteamIdStyle);
                 GUILayout.EndHorizontal();
             }
             catch (System.Exception ex)

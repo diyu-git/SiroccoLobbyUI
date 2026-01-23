@@ -97,8 +97,35 @@ Steam API → SteamLobbyManager → ISteamLobbyService → LobbyController → U
 - **`ISteamLobbyService`**: Domain interface for lobby operations
 - **`LobbyController`**: Coordinates lobby state and UI updates
 - **`ProtoLobbyIntegration`**: Bridges custom lobby system with game's native networking
+- **`NetworkIntegrationService`**: Mirror connect/auth/ready/add-player orchestration (reflection-based)
 - **`LobbyBrowserView`**: IMGUI-based lobby browser
 - **`LobbyRoomView`**: IMGUI-based 5v5 lobby room with player slots
+
+## Debugging & Diagnostics
+
+### Proto-lobby graph dump (runtime introspection)
+
+Because the game is **Unity IL2CPP**, decompiled C# wrappers often route through `il2cpp_runtime_invoke` and don’t expose the actual method bodies.
+Instead, this project uses *runtime introspection* to dump live object graphs at key points.
+
+- The dumper is implemented in `src/Mod/Services/Helpers/ObjectDumper.cs`.
+- The current dump entry point is in `src/Mod/Services/NetworkIntegrationService.cs` and is logged with the prefix `"[ProtoDump]"`.
+
+What you’ll see in logs:
+
+- `"[ProtoDump] === <label> ==="` header lines
+- filtered field/property dumps that include names like `lobby`, `proto`, `ready`, `steam`, `network`, `connection`, `player`
+
+Notes:
+
+- Dump output is intentionally bounded (depth + enumerable sampling) to avoid huge logs.
+- Cycles are detected and printed as `<visited ...>` to keep dumping safe.
+
+### About `SteamP2PNetworkTester`
+
+Some proto-lobby related types in the game are located under `Il2CppWartide.Testing.*` (e.g., `SteamP2PNetworkTester`).
+In the normal production lobby flow, this object may **not** exist at runtime. The mod treats it as optional/debug-only.
+If it’s missing, hosting/joining can still work.
 
 ## Project Structure
 

@@ -1,3 +1,4 @@
+using System;
 using MelonLoader;
 using UnityEngine;
 using SteamLobbyLib;
@@ -15,29 +16,45 @@ using Steamworks;
 
 namespace SiroccoLobby
 {
-    public class Plugin : MelonMod, ILobbyEvents
+    internal class EventForwarder : SteamLobbyLib.ILobbyEvents
     {
-        private SteamLobbyManager? _steamManager;
+        public SteamLobbyLib.ILobbyEvents? Delegate { get; set; }
+        public void OnLobbyListReceived(System.Collections.Generic.List<SteamLobbyLib.LobbyData> lobbies) => Delegate?.OnLobbyListReceived(lobbies);
+        public void OnLobbyJoined(SteamLobbyLib.LobbyId lobbyId) => Delegate?.OnLobbyJoined(lobbyId);
+        public void OnLobbyDataUpdated(SteamLobbyLib.LobbyId lobbyId) => Delegate?.OnLobbyDataUpdated(lobbyId);
+        public void OnLobbyMemberChanged(SteamLobbyLib.LobbyId lobbyId, SteamLobbyLib.LobbyId memberId, Steamworks.EChatMemberStateChange change) => Delegate?.OnLobbyMemberChanged(lobbyId, memberId, change);
+    }
+
+    public class Plugin : MelonMod
+    {
+        private SteamLobbyLib.SteamLobbyManager? _steamManager;
         private LobbyState? _state;
         private LobbyController? _controller;
         private LobbyUIRoot? _ui;
         private ProtoLobbyIntegration? _protoLobby;
-        /* private CaptainSelectionController? _captainController; */
+        private CaptainSelectionController? _captainController;
         private SteamReflectionBridge? _reflectionBridge;
         private SteamLobbyServiceWrapper? _serviceWrapper;
         
         private bool _showUI = false;
         private bool _canShowUI = false;
+        private bool _captainInitialized = false;
+        // Deferred ProtoLobby init attempts to avoid calling game reflection too early.
+        private int _protoInitAttempts = 0;
+        private int _lastProtoInitFrame = 0;
+        private const int MAX_PROTO_INIT_ATTEMPTS = 8; // try several times across frames
+        private const int PROTO_INIT_FRAME_DELAY = 8; // wait 8 frames between attempts
 
         private bool _isSteamInitialized = false;
-        
+            
         // CONFIG: Production Version (No Patching)
         // Set to true only if you need low-level IL2CPP tracing
-        private const bool ENABLE_TRACING = false;
+        // Make this non-const to avoid compile-time unreachable-code warnings when false.
+        private static readonly bool ENABLE_TRACING = false;
 
         public override void OnInitializeMelon()
         {
-            LoggerInstance.Msg("Sirocco Lobby UI initializing (Built on SLL)...");
+            MelonLogger.Msg("Sirocco Lobby UI initializing (Built on SLL)...");
             Debug.Log("[ProtoLobby] Sirocco Lobby UI initializing (Built on SLL)...");
             
             // Apply Harmony patches (Tracing only)
@@ -47,7 +64,7 @@ namespace SiroccoLobby
             }
             else
             {
-                LoggerInstance.Msg("Production Build: Tracing patches disabled.");
+                MelonLogger.Msg("Production Build: Tracing patches disabled.");
             }
             
             // Initialize services
@@ -55,9 +72,10 @@ namespace SiroccoLobby
             _state = new LobbyState();
             _protoLobby = new ProtoLobbyIntegration();
             
-            // Create SteamLobbyManager with this plugin as event handler
-            // We use the extension method to create a logger adapter
-            _steamManager = new SteamLobbyManager(this, new MelonTraceLogger(LoggerInstance));
+            // Create SteamLobbyManager (from the library) with an event forwarder.
+            // We forward library events into the LobbyController to avoid circular construction.
+            var eventForwarder = new EventForwarder();
+            _steamManager = new SteamLobbyLib.SteamLobbyManager(eventForwarder, new MelonTraceLogger(LoggerInstance));
             
             try 
             {
@@ -66,23 +84,40 @@ namespace SiroccoLobby
             }
             catch (System.Exception ex)
             {
-                LoggerInstance.Error($"Failed to initialize SteamLobbyManager: {ex.Message}");
+                MelonLogger.Error($"Failed to initialize SteamLobbyManager: {ex}");
                 // We keep _isSteamInitialized false so we don't crash in OnUpdate
             }
 
-            // Create the wrapper that the controllers expect
-            _serviceWrapper = new SteamLobbyServiceWrapper(_steamManager, LoggerInstance);
+            // Create the library adapter and the thin wrapper the mod uses.
+            var libAdapter = new SteamLobbyManagerAdapter(_steamManager);
+            _serviceWrapper = new SteamLobbyServiceWrapper(libAdapter, LoggerInstance);
 
-            // Create controller
-            _controller = new LobbyController(_state, _serviceWrapper, _protoLobby, LoggerInstance);
+            // Create controller (controller depends on the library interface and the wrapper)
+            _controller = new LobbyController(_state, libAdapter, _protoLobby, LoggerInstance, _serviceWrapper);
+
+            // Create CaptainSelectionController but defer initialization until the game is ready
+            // (Assembly-CSharp / GameAuthority may not be available at Melon init time).
+            try
+            {
+                _captainController = new CaptainSelectionController(libAdapter, _protoLobby);
+                // Do NOT call Initialize() here; wait until the game reports Steam ready and
+                // ProtoLobby.Initialize() succeeds. That ensures reflection can find GameAuthority.
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Warning($"CaptainSelectionController construction failed: {ex}");
+            }
+
+            // Wire the event forwarder to the controller so it receives library callbacks
+            eventForwarder.Delegate = _controller;
             
             // Create UI
             // LobbyRoomView needs ProtoLobbyIntegration
-            var browserView = new LobbyBrowserView(_state, _controller, _serviceWrapper, LoggerInstance);
-            var roomView = new LobbyRoomView(_state, _controller, _serviceWrapper, _protoLobby, LoggerInstance);
+            var browserView = new LobbyBrowserView(_state, _controller, LoggerInstance);
+            var roomView = new LobbyRoomView(_state, _controller, _protoLobby, LoggerInstance);
             _ui = new LobbyUIRoot(_state, browserView, roomView);
             
-            LoggerInstance.Msg("Sirocco Lobby UI initialized!");
+            MelonLogger.Msg("Sirocco Lobby UI initialized!");
         }
 
         public override void OnUpdate()
@@ -92,6 +127,8 @@ namespace SiroccoLobby
                 _steamManager?.Tick();
             }
             _controller?.OnUpdate();
+            // Let the controller process any pending lobby summary updates (debounced)
+            _controller?.ProcessPendingBatch();
             
             // F5 toggle
             if (Input.GetKeyDown(KeyCode.F5))
@@ -107,29 +144,71 @@ namespace SiroccoLobby
                         if (_state != null) _state.ShowDebugUI = true;
                         
                         // Initialize ProtoLobby
-                        if (_protoLobby?.Initialize() == true)
+                        // Attempt a deferred initialization of the ProtoLobby integration. We try a few
+                        // times over multiple frames to avoid doing reflection too early (Assembly-CSharp
+                        // and game singletons may not be ready during Melon init).
+                        bool protoReady = false;
+                        int frame = UnityEngine.Time.frameCount;
+                        if (_protoInitAttempts == 0 || (frame - _lastProtoInitFrame) >= PROTO_INIT_FRAME_DELAY)
                         {
-                            _protoLobby.InitializeCaptainSelection();
-                            
-                            // Sync defaults FROM game (Source of Truth)
-                            if (_state != null)
-                            {
-                                // Captain
-                                int gameCap = _protoLobby.GetSelectedCaptainIndex();
-                                if (gameCap >= 0) _state.SelectedCaptainIndex = gameCap;
+                            _lastProtoInitFrame = frame;
+                            _protoInitAttempts++;
+                                try
+                                {
+                                    protoReady = _protoLobby?.Initialize() == true;
+                                }
+                                catch (Exception ex)
+                                {
+                                    MelonLogger.Warning($"ProtoLobby.Initialize threw: {ex}");
+                                    protoReady = false;
+                                }
+                        }
 
-                                // Team (Game 0/1 -> UI 1/2)
-                                int gameTeam = _protoLobby.GetSelectedTeamIndex();
-                                if (gameTeam >= 0) _state.SelectedTeam = gameTeam + 1;
-                            }
-                            if (_serviceWrapper != null)
+                        if (protoReady)
+                        {
+                            // Ensure _protoLobby is non-null for the following operations
+                            if (_protoLobby != null)
                             {
-/*                                  _captainController = new CaptainSelectionController(_serviceWrapper, _protoLobby);
-                                 if (_captainController.Initialize()) */
-                                 
-                                     if (_state != null) _state.IsProtoLobbyReady = true;
-                                 
+                                // Initialize() already performs captain selection init.
+
+                                // Initialize mod-side captain controller now that game reflection has succeeded
+                                if (!_captainInitialized && _captainController != null)
+                                {
+                                    try
+                                    {
+                                        if (_captainController.Initialize())
+                                        {
+                                            _captainInitialized = true;
+                                            MelonLogger.Msg("CaptainSelectionController initialized (deferred)");
+                                        }
+                                    }
+                                    catch (System.Exception ex)
+                                    {
+                                        MelonLogger.Warning($"CaptainSelectionController init failed (deferred): {ex}");
+                                    }
+                                }
+
+                                // Sync defaults FROM game (Source of Truth)
+                                if (_state != null)
+                                {
+                                    int gameCap = _protoLobby.GetSelectedCaptainIndex();
+                                    if (gameCap >= 0) _state.SelectedCaptainIndex = gameCap;
+
+                                    int gameTeam = _protoLobby.GetSelectedTeamIndex();
+                                    if (gameTeam >= 0) _state.SelectedTeam = gameTeam + 1;
+                                }
+
+                                if (_serviceWrapper != null)
+                                {
+                                    if (_state != null) _state.IsProtoLobbyReady = true;
+                                }
                             }
+                        }
+                        else
+                        {
+                            // If we haven't succeeded yet and attempts remain, log sparse diagnostics
+                                if (_protoInitAttempts <= 1 || _protoInitAttempts % 3 == 0)
+                                    MelonLogger.Msg($"ProtoLobby initialization attempt {_protoInitAttempts} failed; will retry up to {MAX_PROTO_INIT_ATTEMPTS} attempts");
                         }
                    }
                 }
@@ -148,8 +227,8 @@ namespace SiroccoLobby
 
         public override void OnApplicationQuit()
         {
-            LoggerInstance.Msg("[Shutdown] Application Quitting - Cleaning up lobby...");
-            _controller?.LeaveLobby();
+            MelonLogger.Msg("[Shutdown] Application Quitting - Cleaning up lobby...");
+            _controller?.EndLobby(LobbyController.LobbyEndMode.ApplicationQuit);
         }
 
         public override void OnGUI()
@@ -160,93 +239,7 @@ namespace SiroccoLobby
             }
         }
 
-        // --- ILobbyEvents Implementation ---
-
-        public void OnLobbyListReceived(List<LobbyData> lobbies)
-        {
-            if (_state?.ShowDebugUI == true) LoggerInstance.Msg($"[Events] Lobby list received: {lobbies.Count} lobbies");
-            _state?.UpdateLobbyList(lobbies.Select(l => (object)l.Id.Value));
-        }
-
-        public void OnLobbyJoined(LobbyId lobbyId)
-        {
-            if (_state?.ShowDebugUI == true) LoggerInstance.Msg($"[Events] Joined lobby: {lobbyId.Value}");
-            _controller?.OnLobbyEntered(lobbyId.Value); 
-            // RefreshMembers called via OnUpate/Tick eventually or explicit? 
-            // _controller checks state. RefreshMembers updates members list.
-            RefreshMembers(lobbyId);
-        }
-
-        public void OnLobbyDataUpdated(LobbyId lobbyId)
-        {
-            if (_state?.CurrentLobby != null)
-            {
-                ulong current = 0;
-                if (_state.CurrentLobby is ulong u) current = u;
-                else if (_state.CurrentLobby is CSteamID c) current = c.m_SteamID;
-                
-                if (current == lobbyId.Value)
-                {
-                    if (_state?.ShowDebugUI == true) LoggerInstance.Msg($"[Events] Current lobby updated");
-                    _controller?.RefreshLobbyData(); // Update name/host info
-                    RefreshMembers(lobbyId);
-                }
-            }
-        }
-
-        public void OnLobbyMemberChanged(LobbyId lobbyId, LobbyId memberId, EChatMemberStateChange change)
-        {
-             if (_state?.CurrentLobby != null)
-            {
-                 ulong current = 0;
-                 if (_state.CurrentLobby is ulong u) current = u;
-                 else if (_state.CurrentLobby is CSteamID c) current = c.m_SteamID;
-
-                 if (current == lobbyId.Value)
-                 {
-                    LoggerInstance.Msg($"[Events] Member {change}");
-                    RefreshMembers(lobbyId);
-                 }
-            }
-        }
-
-        private void RefreshMembers(LobbyId lobbyId)
-        {
-            var members = new List<LobbyMember>();
-            CSteamID steamLobbyId = new CSteamID(lobbyId.Value);
-            
-            int count = SteamMatchmaking.GetNumLobbyMembers(steamLobbyId);
-            var ownerId = SteamMatchmaking.GetLobbyOwner(steamLobbyId);
-
-            for (int i = 0; i < count; i++)
-            {
-                var userId = SteamMatchmaking.GetLobbyMemberByIndex(steamLobbyId, i);
-                if (userId == CSteamID.Nil) continue;
-
-                string teamStr = SteamMatchmaking.GetLobbyMemberData(steamLobbyId, userId, "team");
-                string captainStr = SteamMatchmaking.GetLobbyMemberData(steamLobbyId, userId, "captain_index");
-                string readyStr = SteamMatchmaking.GetLobbyMemberData(steamLobbyId, userId, "is_ready");
-                string name = SteamFriends.GetFriendPersonaName(userId);
-
-                int.TryParse(teamStr, out int team);
-                if (team == 0) team = 1;
-                
-                int.TryParse(captainStr, out int captain);
-                bool.TryParse(readyStr, out bool isReady);
-
-                members.Add(new LobbyMember
-                {
-                    SteamId = userId.m_SteamID,
-                    Name = name,
-                    Team = team,
-                    CaptainIndex = captain,
-                    IsHost = (userId == ownerId),
-                    IsReady = isReady
-                });
-            }
-            
-            _state?.UpdateMembers(members);
-        }
+        // Event handling and member-refresh/batching have been moved into LobbyController.
     }
 
     public class MelonTraceLogger : ITraceLogger

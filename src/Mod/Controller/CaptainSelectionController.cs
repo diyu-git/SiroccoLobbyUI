@@ -13,6 +13,7 @@ namespace SiroccoLobby.Controller
     {
         private ProtoLobbyIntegration _protoLobby;
         private ISteamLobbyService _steamLobby;
+        private bool _initialized;
         
         // Store captain selections for each player in the lobby
         private Dictionary<ulong, int> _playerCaptainSelections = new Dictionary<ulong, int>();
@@ -28,6 +29,8 @@ namespace SiroccoLobby.Controller
         /// </summary>
         public bool Initialize()
         {
+            if (_initialized) return true;
+
             if (!_protoLobby.Initialize())
             {
                 MelonLogger.Error("[CaptainSelection] Failed to initialize ProtoLobby");
@@ -35,7 +38,10 @@ namespace SiroccoLobby.Controller
             }
 
             // Initialize the captain selection dropdown
-            //_protoLobby.InitializeCaptainSelection();
+            // NOTE: The actual game-side captain dropdown initialization (InitializeProtoLobbyCaptainSelection)
+            // is performed by the ProtoLobbyIntegration service. The controller should NOT invoke the
+            // game's initialize method directly to avoid timing/race issues. The controller's role is to
+            // prepare UI state and interact with the service (get names, set username, apply selections).
 
             // Set the local player's username
             try
@@ -50,10 +56,11 @@ namespace SiroccoLobby.Controller
             }
 
             //MelonLogger.Msg($"[CaptainSelection] Initialized with {_protoLobby.GetCaptainCount()} captains available");
+            _initialized = true;
             return true;
         }
 
-        /* /// <summary>
+        /// <summary>
         /// Get the list of available captains for UI display
         /// </summary>
         public List<string> GetCaptainNames()
@@ -80,6 +87,20 @@ namespace SiroccoLobby.Controller
                 return;
             }
 
+            // Track local selection (helps even before we model remote players)
+            try
+            {
+                var local = _steamLobby.GetLocalSteamId();
+                if (local != null && ulong.TryParse(local.ToString(), out var localUlong))
+                {
+                    _playerCaptainSelections[localUlong] = captainIndex;
+                }
+            }
+            catch
+            {
+                // Best-effort only
+            }
+
             // Set in the game's ProtoLobby system
             _protoLobby.SetSelectedCaptain(captainIndex);
 
@@ -96,10 +117,7 @@ namespace SiroccoLobby.Controller
                 return captainIndex;
             }
 
-            // Try to get from Steam lobby data (would need lobby ID context)
-            // For now, return -1 if not in local cache
-
-            return -1; // No selection
+            return -1;
         }
 
         /// <summary>
@@ -130,7 +148,9 @@ namespace SiroccoLobby.Controller
         public void Reset()
         {
             _playerCaptainSelections.Clear();
-            _protoLobby.SetSelectedCaptain(0);
-        }*/
+            // IMPORTANT: don't force the native captain selection here.
+            // Reset() is used when entering/leaving lobbies; mutating the game's ProtoLobby selection
+            // can clobber selections at the wrong time (and fights UI polling in LobbyController).
+        }
     } 
 }
