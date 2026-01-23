@@ -27,6 +27,32 @@ Before installing this mod, you **must** have:
 
 > **Important**: This mod does **not** include MelonLoader or any game files. You must install these separately.
 
+📖 **[See Complete Installation Guide →](docs/INSTALLATION.md)**
+
+## Quick Install
+
+1. **Install MelonLoader** (one-time setup)
+   - Download and run the automated installer
+   - Point it to your Sirocco game folder
+
+2. **Download Latest Release**
+   - Get the mod from [Releases page](https://github.com/diyu-git/SiroccoLobbyUI/releases/latest)
+
+3. **Copy Files to Game**
+   ```
+   Extract to: <Steam>\steamapps\common\Sirocco\Mods\
+   
+   Files:
+   - SiroccoLobbyUI.dll
+   - Steamworks.NET.dll
+   ```
+
+4. **Launch & Play**
+   - Start Sirocco via Steam
+   - Press **F5** to open lobby browser
+
+📖 **Detailed instructions, troubleshooting, and FAQ: [INSTALLATION.md](docs/INSTALLATION.md)**
+
 ## Dependency Management
 
 This project uses **Git Submodules** to manage the `SLL` (SteamLobbyLib) dependency. This allows the library to be maintained independently while being integrated here.
@@ -34,42 +60,9 @@ This project uses **Git Submodules** to manage the `SLL` (SteamLobbyLib) depende
 - **Source of Truth**: [https://github.com/diyu-git/SteamLobbyLib](https://github.com/diyu-git/SteamLobbyLib)
 - **Local Enhancements**: Any changes made to `SLL` within this project should be committed inside the `SLL` folder and pushed back to the main library repository to keep both projects in sync.
 
-## Installation
-
-### Option 1: Download Precompiled Release (Recommended)
-
-1. Download the latest release ZIP from the [Releases page](https://github.com/diyu-git/SiroccoLobbyUI/releases)
-2. Extract the ZIP contents to your Sirocco `Mods` folder:
-   ```
-   <Steam>\steamapps\common\Sirocco\Mods\
-   ```
-3. Launch Sirocco via Steam
-4. Press **F5** to toggle the lobby browser
-
-### Option 2: Build from Source
+## Building from Source
 
 See [BUILDING.md](BUILDING.md) for detailed build instructions.
-
-**Quick start:**
-
-```bash
-# Clone the repository
-git clone https://github.com/diyu-git/SiroccoLobbyUI.git
-cd SiroccoLobbyUI
-
-# Initialize submodules (if using SLL)
-git submodule update --init --recursive
-
-# Configure your game path (create Directory.Build.props.user)
-# See BUILDING.md for details
-
-# Build
-dotnet build src/SteamLobbyLib.csproj -c Release
-
-# Copy to game
-cp src/bin/Release/net6.0/SiroccoLobbyUI.dll "<Steam>/steamapps/common/Sirocco/Mods/"
-cp src/bin/Release/net6.0/Steamworks.NET.dll "<Steam>/steamapps/common/Sirocco/Mods/"
-```
 
 ## Usage
 
