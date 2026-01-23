@@ -20,6 +20,11 @@ namespace SiroccoLobby.Controller
         private readonly MelonLogger.Instance _log;
         private readonly CaptainSelectionController? _captainController;
 
+    private bool _loggedCaptainResetException;
+    private bool _loggedLocalSteamIdException;
+    private bool _loggedSelectCaptainForwardException;
+    private bool _loggedEndLobbyQuitException;
+
         public LobbyController(
             LobbyState state,
             ISteamLobbyService steam,
@@ -130,7 +135,18 @@ namespace SiroccoLobby.Controller
              }
 
             // Reset captain selection controller state for this lobby
-            try { _captainController?.Reset(); } catch { }
+            try
+            {
+                _captainController?.Reset();
+            }
+            catch (System.Exception ex)
+            {
+                if (!_loggedCaptainResetException)
+                {
+                    _loggedCaptainResetException = true;
+                    _log.Warning($"[LobbyController] CaptainSelectionController.Reset failed: {ex.Message}");
+                }
+            }
         }
 
         public void RefreshLobbyData()
@@ -306,7 +322,14 @@ namespace SiroccoLobby.Controller
             {
                 if (id is Steamworks.CSteamID cs) return cs.m_SteamID;
             }
-            catch { }
+            catch (System.Exception ex)
+            {
+                if (!_loggedLocalSteamIdException)
+                {
+                    _loggedLocalSteamIdException = true;
+                    _log.Warning($"[LobbyController] Failed reading local SteamID via Steamworks.CSteamID: {ex.Message}");
+                }
+            }
 
             if (ulong.TryParse(id.ToString(), out var parsed)) return parsed;
             return 0UL;
@@ -328,7 +351,14 @@ namespace SiroccoLobby.Controller
             {
                 if (steamId is Steamworks.CSteamID cs) return cs.m_SteamID == GetLocalSteamIdULong();
             }
-            catch { }
+            catch (System.Exception ex)
+            {
+                if (!_loggedLocalSteamIdException)
+                {
+                    _loggedLocalSteamIdException = true;
+                    _log.Warning($"[LobbyController] Failed reading SteamID via Steamworks.CSteamID: {ex.Message}");
+                }
+            }
 
             // Try to parse string representations
             if (ulong.TryParse(steamId.ToString(), out var parsed)) return parsed == GetLocalSteamIdULong();
@@ -408,8 +438,25 @@ namespace SiroccoLobby.Controller
 
                 case LobbyEndMode.ApplicationQuit:
                     // Best-effort cleanup during app quit
-                    try { ExitSteamLobby(lobby); } catch {}
-                    try { ShutdownLobbyNetworkIfOwned(wasHost); } catch {}
+                    try { ExitSteamLobby(lobby); }
+                    catch (System.Exception ex)
+                    {
+                        if (!_loggedEndLobbyQuitException)
+                        {
+                            _loggedEndLobbyQuitException = true;
+                            _log.Warning($"[LobbyController] ExitSteamLobby failed during quit: {ex.Message}");
+                        }
+                    }
+
+                    try { ShutdownLobbyNetworkIfOwned(wasHost); }
+                    catch (System.Exception ex)
+                    {
+                        if (!_loggedEndLobbyQuitException)
+                        {
+                            _loggedEndLobbyQuitException = true;
+                            _log.Warning($"[LobbyController] ShutdownLobbyNetworkIfOwned failed during quit: {ex.Message}");
+                        }
+                    }
                     ClearLobbyState();
                     break;
             }
@@ -468,7 +515,18 @@ namespace SiroccoLobby.Controller
              _log.Msg($"Selected Captain {captainIndex}, Team {teamIndex}");
 
             // Forward selection to captain controller if present
-            try { _captainController?.SelectCaptain(captainIndex); } catch { }
+            try
+            {
+                _captainController?.SelectCaptain(captainIndex);
+            }
+            catch (System.Exception ex)
+            {
+                if (!_loggedSelectCaptainForwardException)
+                {
+                    _loggedSelectCaptainForwardException = true;
+                    _log.Warning($"[LobbyController] CaptainSelectionController.SelectCaptain failed: {ex.Message}");
+                }
+            }
         }
 
         public void ToggleReady_Host()

@@ -21,6 +21,10 @@ namespace SiroccoLobby.Services.Helpers
 
         private readonly HashSet<object> _visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
+        private bool _loggedFieldDumpException;
+        private bool _loggedPropertyDumpException;
+        private bool _loggedRootDumpException;
+
         public ObjectDumper(
             Func<MemberInfo, bool>? memberFilter = null,
             Func<Type, bool>? typeFilter = null,
@@ -43,6 +47,9 @@ namespace SiroccoLobby.Services.Helpers
                 MelonLogger.Msg($"{_prefix} === {label} ===");
 
             _visited.Clear();
+            _loggedFieldDumpException = false;
+            _loggedPropertyDumpException = false;
+            _loggedRootDumpException = false;
             DumpRecursive(obj, indent, _maxDepth);
         }
 
@@ -87,7 +94,14 @@ namespace SiroccoLobby.Services.Helpers
                         if (value != null && ShouldRecurse(field.FieldType))
                             DumpRecursive(value, indent + "  ", depth - 1);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        if (!_loggedFieldDumpException)
+                        {
+                            _loggedFieldDumpException = true;
+                            MelonLogger.Msg($"{_prefix}{indent}<field dump failed: {ex.GetType().Name}: {ex.Message}>");
+                        }
+                    }
                 }
 
                 // Dump properties
@@ -104,10 +118,24 @@ namespace SiroccoLobby.Services.Helpers
                         if (value != null && ShouldRecurse(prop.PropertyType))
                             DumpRecursive(value, indent + "  ", depth - 1);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        if (!_loggedPropertyDumpException)
+                        {
+                            _loggedPropertyDumpException = true;
+                            MelonLogger.Msg($"{_prefix}{indent}<property dump failed: {ex.GetType().Name}: {ex.Message}>");
+                        }
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                if (!_loggedRootDumpException)
+                {
+                    _loggedRootDumpException = true;
+                    MelonLogger.Msg($"{_prefix}{indent}<dump failed: {ex.GetType().Name}: {ex.Message}>");
+                }
+            }
         }
 
         private void DumpEnumerable(IEnumerable enumerable, string indent, int depth)

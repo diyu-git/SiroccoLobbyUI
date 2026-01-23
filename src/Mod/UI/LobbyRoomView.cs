@@ -160,7 +160,19 @@ namespace SiroccoLobby.UI
                     DrawCaptainWindowContent(0);
                     GUILayout.EndArea();
                 }
-                catch {}
+                catch (System.Exception ex)
+                {
+                    // Throttle overlay errors: this is UI-only and can happen during layout/anchor changes.
+                    if (Event.current.type == EventType.Repaint)
+                    {
+                        long now = System.DateTime.Now.Ticks / 10000000;
+                        if (now > _lastLogTime + 5)
+                        {
+                            _log.Error($"[UI Room] Captain overlay error: {ex.Message}");
+                            _lastLogTime = now;
+                        }
+                    }
+                }
             }
         }
 

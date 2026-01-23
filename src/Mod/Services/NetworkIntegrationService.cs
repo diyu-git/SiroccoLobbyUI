@@ -27,6 +27,8 @@ namespace SiroccoLobby.Services
         private bool _hasWarnedMissingPlayerStatusRefs;
    		private bool _hasDumpedTesterGraph;
 
+        private bool _hasWarnedMissingTesterValidation;
+
         private static readonly ObjectDumper ProtoLobbyDumper = new ObjectDumper(
             memberFilter: ObjectDumper.ProtoLobbyRelatedFilter,
             maxDepth: 3,
@@ -135,8 +137,21 @@ namespace SiroccoLobby.Services
         {
             if (_reflection.TesterInstance == null || _reflection.ValidatePlayersReadyMethod == null)
             {
-                MelonLoader.MelonLogger.Error("[NetworkIntegrationService] Tester or validation method not found.");
-                return false;
+                // In the normal production flow this tester object often does not exist.
+                // Treat it as optional/debug-only and avoid error noise.
+                if (!_hasWarnedMissingTesterValidation)
+                {
+                    _hasWarnedMissingTesterValidation = true;
+                    MelonLoader.MelonLogger.Msg(
+                        "[NetworkIntegrationService] ValidatePlayersReadyForGameStart skipped: " +
+                        "SteamP2PNetworkTester not available (expected in production flow).");
+
+                    // One-time: attempt a dump to help us discover the real readiness authority.
+                    TryDumpProtoLobbyGraphOnce("ValidatePlayersReadyForGameStart:missing-tester");
+                }
+
+                // Neutral default: do not block gameplay on an optional debug component.
+                return true;
             }
 
             bool result = false;
@@ -420,8 +435,11 @@ namespace SiroccoLobby.Services
         public void DisconnectClient() => ShutdownNetwork(false);
 
         // P2P placeholders
-        public void InitializeP2PConnections() => throw new NotImplementedException("[NetworkIntegrationService] P2P init not implemented.");
-        public void ReceiveP2PData() => throw new NotImplementedException("[NetworkIntegrationService] P2P receive not implemented.");
+        public void InitializeP2PConnections() =>
+            MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] P2P init requested, but not implemented in this mod build.");
+
+        public void ReceiveP2PData() =>
+            MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] P2P receive requested, but not implemented in this mod build.");
 
         #endregion
 
