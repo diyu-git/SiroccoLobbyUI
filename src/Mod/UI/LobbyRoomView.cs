@@ -11,7 +11,6 @@ namespace SiroccoLobby.UI
     {
         private readonly LobbyState _state;
         private readonly LobbyController _controller;
-        private readonly ISteamLobbyService _steam;
         private readonly MelonLogger.Instance _log;
         private readonly ProtoLobbyIntegration _protoLobby;
         private long _lastLogTime = 0;
@@ -19,13 +18,11 @@ namespace SiroccoLobby.UI
         public LobbyRoomView(
             LobbyState state, 
             LobbyController controller,
-            ISteamLobbyService steam,
             ProtoLobbyIntegration protoLobby,
             MelonLogger.Instance log)
         {
             _state = state;
             _controller = controller;
-            _steam = steam;
             _protoLobby = protoLobby;
             _log = log;
         }
@@ -50,7 +47,7 @@ namespace SiroccoLobby.UI
                 // 1. Title Row
                 GUILayout.BeginHorizontal();
                 GUILayout.FlexibleSpace();
-                GUILayout.Label($"{_steam.GetLobbyName()}", LobbyStyles.TitleStyle ?? GUI.skin.label);
+                GUILayout.Label($"{_state.CachedLobbyName}", LobbyStyles.TitleStyle ?? GUI.skin.label);
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 
@@ -63,7 +60,7 @@ namespace SiroccoLobby.UI
                 GUILayout.BeginVertical(GUILayout.Width(170));
                 if (GUILayout.Button("Leave Lobby", LobbyStyles.ButtonStyle, GUILayout.Height(35)))
                 {
-                    _controller.LeaveLobby();
+                    _controller.EndLobby(SiroccoLobby.Controller.LobbyController.LobbyEndMode.UserLeave);
                 }
                 if (GUILayout.Button("Copy Host ID", LobbyStyles.ButtonStyle, GUILayout.Height(30)))
                 {
@@ -106,8 +103,8 @@ namespace SiroccoLobby.UI
                 
                 // 3. Footer Area
                 GUILayout.BeginHorizontal(LobbyStyles.BoxStyle ?? GUI.skin.box);
-                int currentP = _state.CurrentLobby != null ? _steam.GetMemberCount(_state.CurrentLobby) : 0;
-                int maxP = _state.CurrentLobby != null ? _steam.GetMemberLimit(_state.CurrentLobby) : 0;
+                int currentP = _state.CurrentLobby != null ? _state.CurrentLobbyMemberCount : 0;
+                int maxP = _state.CurrentLobby != null ? _state.CurrentLobbyMaxPlayers : 0;
                 GUILayout.Label($"Players: {currentP}/{maxP}", LobbyStyles.HeaderStyle);
                 
                 GUILayout.FlexibleSpace();
@@ -232,7 +229,7 @@ namespace SiroccoLobby.UI
             {
                 _controller.SelectCaptainAndTeam(_state.SelectedCaptainIndex, 1);
             }
-            // Removed Space(10) to keep height strict
+            
             for (int i = 0; i < 5; i++)
             {
                 var member = i < team1Members.Count ? team1Members[i] : null;
@@ -250,7 +247,7 @@ namespace SiroccoLobby.UI
             {
                 _controller.SelectCaptainAndTeam(_state.SelectedCaptainIndex, 2);
             }
-            // Removed Space(10) to keep height strict
+            
             for (int i = 0; i < 5; i++)
             {
                 var member = i < team2Members.Count ? team2Members[i] : null;
@@ -286,8 +283,8 @@ namespace SiroccoLobby.UI
                 }
 
                 string displayName = member.Name ?? "Unknown";
-                if (member.IsHost) displayName += " (H)";
-                if (member.SteamId != null && _steam.CSteamIDEquals(member.SteamId, _steam.GetLocalSteamId())) displayName += " (Y)";
+                if (member.IsHost) displayName += " (Host)";
+                if (member.SteamId != null && _controller.IsLocalSteamId(member.SteamId)) displayName += " (You)";
                 
                 // Truncate long names to fit fixed widths
                 if (displayName.Length > 16) displayName = displayName.Substring(0, 13) + "...";

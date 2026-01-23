@@ -133,6 +133,72 @@ if (_state.IsLocalReady)
 - Avoids silent failures that would block game start
 - Provides clear error messages to the user
 
+> Additional constraint (Mirror Auth): in some builds, Mirror will require the client to authenticate *before* it accepts `Ready()` / `AddPlayer()`.
+> This mod guards that path; if you see log lines indicating ready was blocked due to authentication, wait for auth state to complete (or review the authenticator wiring described below).
+
+---
+
+## Mirror Auth (Authenticator) Flow
+
+Mirror supports an optional *Authenticator* component attached to the NetworkManager. In this project we **force-trigger** the client auth hook via reflection because we are interfacing with the game's internal Mirror setup rather than owning the full transport/auth pipeline.
+
+### Where it happens
+
+**File**: `src/Mod/Services/NetworkIntegrationService.cs`
+
+After a successful connect attempt (both local and remote), `NetworkIntegrationService` checks for a cached authenticator and calls its auth entry point:
+
+- `GameReflectionBridge` caches:
+  - `AuthenticatorInstance` (from the NetworkManager `authenticator` field)
+  - `OnClientAuthenticateMethod` (method named `OnClientAuthenticate`)
+
+- `NetworkIntegrationService` triggers auth:
+  - `ConnectToLocalServer()` → `NetworkClient.ConnectLocalServer()` → **then** `authenticator.OnClientAuthenticate()`
+  - `ConnectToRemoteServer(address)` → `NetworkClient.Connect(address)` → **then** `authenticator.OnClientAuthenticate()`
+
+### Why we do this
+
+In a typical Mirror project, the authenticator is invoked as part of the normal connect pipeline. Here we’re *hooking into* the game's existing Mirror objects via reflection, so we explicitly call `OnClientAuthenticate` when the authenticator is present.
+
+### Ordering relative to Ready/AddPlayer
+
+The intended order is:
+
+1. Client joins Steam lobby and captures the host SteamID64 string.
+2. Client calls `ConnectToGameServer(hostSteamId)`.
+3. Network connect begins (Mirror → Transport → Steam P2P).
+4. If an authenticator exists, we call `OnClientAuthenticate()`.
+5. Only after the client is actually connected (`IsConnected == true`) should UI allow:
+   - `NetworkClient.Ready()`
+   - `NetworkClient.AddPlayer(...)`
+   - `CompleteProtoLobbyClient()` (ProtoLobby flow completion)
+
+In addition, if Mirror auth is enforced by the server, the client must be authenticated before `Ready()`/`AddPlayer()` are sent.
+The mod logs and blocks those calls when `NetworkClient.isAuthenticated` is still false.
+
+---
+
+## Diagnostics: runtime object dumps (IL2CPP)
+
+Many interesting game-side objects are IL2CPP and don’t have readable managed method bodies in decompiled output.
+To understand *what the game is actually doing*, the mod includes a small reflection-based object graph dumper:
+
+- Implementation: `src/Mod/Services/Helpers/ObjectDumper.cs`
+- Used by services/patches to dump a bounded set of fields/properties at runtime
+- Proto-lobby related dumps use the log prefix `"[ProtoDump]"`
+
+If a dump is skipped due to an object instance not being found, that usually means the target type is not instantiated in the current game flow (common for `Il2CppWartide.Testing.*` classes).
+
+### Failure modes / troubleshooting
+
+- If auth is required and `OnClientAuthenticate` is never invoked, you’ll often see:
+  - client appears connected but cannot ready/add player, or
+  - host never sees the client as valid/ready.
+
+- If reflection caching fails (authenticator field/method missing), connection may still succeed but auth-specific behavior won’t run.
+
+> Note: the authenticator behavior is game-defined; this doc only describes how our mod triggers the entry point.
+
 ---
 
 ## Type Chain

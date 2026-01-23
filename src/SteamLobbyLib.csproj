@@ -5,6 +5,11 @@
         <Nullable>enable</Nullable>
         <AssemblyName>SiroccoLobbyUI</AssemblyName>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <!-- Suppress TFM support warnings for transitive packages that target newer TFMs
+             This reduces noisy warnings when building against net6.0. If you prefer,
+             consider upgrading TargetFramework to net8.0 or downgrading package versions.
+        -->
+        <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
     </PropertyGroup>
 
     <ItemGroup>
@@ -57,6 +62,10 @@
             <Private>False</Private>
         </Reference>
     </ItemGroup>
+
+        <ItemGroup>
+            <ProjectReference Include="..\SLL\SteamLobbyLib\SteamLobbyLib.csproj" />
+        </ItemGroup>
 
 
     <!-- Optional: Copy to game directory after build (for development) -->

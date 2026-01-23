@@ -12,6 +12,10 @@ namespace SiroccoLobby.Model
         public IReadOnlyList<object> CachedLobbies => _cachedLobbies;
         private readonly List<object> _cachedLobbies = new List<object>();
 
+        // UI-friendly snapshot of available lobbies populated by the controller
+        public IReadOnlyList<LobbySummary> AvailableLobbies => _availableLobbies;
+        private readonly List<LobbySummary> _availableLobbies = new List<LobbySummary>();
+
         // Lobby Syncing
         public IReadOnlyList<LobbyMember> Members => _members;
         private readonly List<LobbyMember> _members = new List<LobbyMember>();
@@ -24,6 +28,10 @@ namespace SiroccoLobby.Model
 
         public string? CachedLobbyName { get; set; }
         public string? HostSteamId { get; set; }
+        
+        // Current lobby counts (populated by controller)
+        public int CurrentLobbyMemberCount { get; set; } = 0;
+        public int CurrentLobbyMaxPlayers { get; set; } = 0;
         
         // UI Helpers
         public bool ShowCaptainDropdown { get; set; }
@@ -46,6 +54,25 @@ namespace SiroccoLobby.Model
         {
             _cachedLobbies.Clear();
             _cachedLobbies.AddRange(lobbies);
+        }
+        
+        public void UpdateAvailableLobbies(IEnumerable<LobbySummary> summaries)
+        {
+            _availableLobbies.Clear();
+            _availableLobbies.AddRange(summaries);
+        }
+
+        public void UpdateOrAddLobbySummary(LobbySummary summary)
+        {
+            for (int i = 0; i < _availableLobbies.Count; i++)
+            {
+                if (Equals(_availableLobbies[i].LobbyId, summary.LobbyId))
+                {
+                    _availableLobbies[i] = summary;
+                    return;
+                }
+            }
+            _availableLobbies.Add(summary);
         }
         
         public void UpdateMembers(IEnumerable<LobbyMember> members)
