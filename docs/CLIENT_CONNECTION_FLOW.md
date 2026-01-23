@@ -1,5 +1,9 @@
 # Client Connection Flow
 
+> **⚠️ DEPRECATED**: This document contains outdated references to "Riptide" transport. The game actually uses Mirror's SteamP2PTransport. For the current, accurate multiplayer flow documentation, see [WORKING_MULTIPLAYER_FLOW.md](WORKING_MULTIPLAYER_FLOW.md).
+>
+> This document is kept for historical reference but should not be considered authoritative.
+
 ## Overview
 
 This document explains how clients connect to a hosted game via Riptide P2P networking. This is critical for understanding the multiplayer architecture.

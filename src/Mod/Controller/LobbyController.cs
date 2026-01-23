@@ -928,10 +928,9 @@ namespace SiroccoLobby.Controller
                 // 1. Mirror: Ready() - sends ready state + adds player to game
                 _protoLobby.CallNetworkClientReady(_state.SelectedCaptainIndex, _state.SelectedTeam);
 
-                // 2. DO NOT call CompleteProtoLobbyClient() here!
-                // Client should wait for host's RpcNotifyGameStarted() before completing.
-                // TODO: Implement OnGameStartReceived() handler to complete client flow when host starts game
-                // _protoLobby.CompleteProtoLobbyClient(); // REMOVED - called too early
+                // 2. Client completion is handled by the game's native flow after host starts.
+                // The game internally triggers CompleteProtoLobbyClient via its own RPC/event system.
+                // We do NOT manually call it here - it would happen too early in the flow.
             }
             else
             {

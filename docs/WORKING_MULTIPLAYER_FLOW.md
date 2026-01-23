@@ -4,6 +4,8 @@
 
 This document describes the complete, working multiplayer lobby and connection flow for the Sirocco Lobby UI mod.
 
+> **See also**: [CLIENT_CONNECTION_FLOW.md](CLIENT_CONNECTION_FLOW.md) for detailed technical architecture of the Mirror/Steam P2P transport layer.
+
 ---
 
 ## Overview
