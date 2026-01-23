@@ -26,6 +26,28 @@ namespace SiroccoLobby.Model
         public int SelectedCaptainIndex { get; set; } = 0;
         public int SelectedTeam { get; set; } = 2;
 
+        // Captain Mode State
+        public bool CaptainModeEnabled { get; set; } = false;
+        public CaptainModePhase CaptainModePhase { get; set; } = CaptainModePhase.None;
+        public string? CaptainTeamA { get; set; } = null; // Steam ID of Team A captain
+        public string? CaptainTeamB { get; set; } = null; // Steam ID of Team B captain
+        public int CurrentPickingTeam { get; set; } = 1; // 1 or 2, which captain is currently picking
+        public List<string> PickedPlayers { get; } = new List<string>(); // Steam IDs of players who have been picked
+        
+        // Lobby Feed (for activity log)
+        public IReadOnlyList<string> LobbyFeed => _lobbyFeed;
+        private readonly List<string> _lobbyFeed = new List<string>();
+        
+        public void AddFeedMessage(string message)
+        {
+            _lobbyFeed.Add(message);
+            // Keep only last 10 messages
+            if (_lobbyFeed.Count > 10)
+            {
+                _lobbyFeed.RemoveAt(0);
+            }
+        }
+
         public string? CachedLobbyName { get; set; }
         public string? HostSteamId { get; set; }
         
@@ -48,6 +70,15 @@ namespace SiroccoLobby.Model
             ViewState = LobbyUIState.Browser;
             IsSearchingForHostedLobby = false;
             _members.Clear();
+            
+            // Clear captain mode state
+            CaptainModeEnabled = false;
+            CaptainModePhase = CaptainModePhase.None;
+            CaptainTeamA = null;
+            CaptainTeamB = null;
+            CurrentPickingTeam = 1;
+            PickedPlayers.Clear();
+            _lobbyFeed.Clear();
         }
 
         public void UpdateLobbyList(IEnumerable<object> lobbies)

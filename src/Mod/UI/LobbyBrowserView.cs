@@ -33,21 +33,13 @@ namespace SiroccoLobby.UI
 
             try 
             {
-                // Title Bar with Help and Close buttons
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("SIROCCO NAVAL COMMAND", LobbyStyles.TitleStyle);
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button("?", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
-                {
-                    _log.Msg("[Help] F5: Toggle UI | ESC: Cancel Actions");
-                    // Future: Open help modal or URL
-                }
-                if (GUILayout.Button("X", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
-                {
-                    _state.ShowDebugUI = false;
-                }
-                GUILayout.EndHorizontal();
-                GUILayout.Space(5);
+                // Shared header
+                SharedUIComponents.DrawHeader(
+                    _state, 
+                    _log,
+                    "[Help] F5: Toggle UI | ESC: Cancel Actions",
+                    showPlayerCount: false
+                );
 
                 // Centered Header
                 GUILayout.BeginHorizontal();

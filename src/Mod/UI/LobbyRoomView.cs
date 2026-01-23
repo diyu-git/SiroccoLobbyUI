@@ -18,6 +18,11 @@ namespace SiroccoLobby.UI
         // Copy feedback state
         private bool _showCopiedFeedback = false;
         private float _copiedFeedbackUntil = 0f;
+        
+        // Captain selector state
+        private bool _showCaptainSelector = false;
+        private int _captainSelectorForTeam = 1; // 1 = Team A, 2 = Team B
+        private Rect _captainSelectorRect = new Rect(200, 150, 300, 400);
 
         public LobbyRoomView(
             LobbyState state, 
@@ -54,21 +59,18 @@ namespace SiroccoLobby.UI
 
             try 
             {
-                // Title Bar with Help and Close buttons
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("SIROCCO NAVAL COMMAND", LobbyStyles.TitleStyle);
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button("?", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
-                {
-                    _log.Msg("[Help] F5: Toggle UI | Ready: Toggle ready status | Teams: Click TEAM A/B header");
-                    // Future: Open help modal or URL
-                }
-                if (GUILayout.Button("X", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
-                {
-                    _state.ShowDebugUI = false;
-                }
-                GUILayout.EndHorizontal();
-                GUILayout.Space(5);
+                // Shared header with player count and leave lobby cleanup
+                int currentP = _state.CurrentLobby != null ? _state.CurrentLobbyMemberCount : 0;
+                int maxP = _state.CurrentLobby != null ? _state.CurrentLobbyMaxPlayers : 0;
+                SharedUIComponents.DrawHeader(
+                    _state, 
+                    _log,
+                    "[Help] F5: Toggle UI | Ready: Toggle ready status | Teams: Click TEAM A/B header",
+                    onClose: () => _controller.EndLobby(LobbyController.LobbyEndMode.UserLeave),
+                    showPlayerCount: true,
+                    currentPlayers: currentP,
+                    maxPlayers: maxP
+                );
 
                 // 1. Title Row
                 GUILayout.BeginHorizontal();
@@ -105,6 +107,53 @@ namespace SiroccoLobby.UI
                 
                 GUILayout.Space(8);
                 
+                // Captain Mode Section (Host Only)
+                if (_state.IsHost)
+                {
+                    GUILayout.Label("CAPTAIN MODE", LobbyStyles.HeaderStyle);
+                    
+                    // Enable/Disable toggle
+                    bool canEnableCaptainMode = !_state.Members.Any(m => m.IsReady) && _state.Members.Count() >= 4;
+                    GUI.enabled = canEnableCaptainMode;
+                    
+                    bool newCaptainMode = GUILayout.Toggle(_state.CaptainModeEnabled, "Enable Captain Mode");
+                    if (newCaptainMode != _state.CaptainModeEnabled)
+                    {
+                        _controller.ToggleCaptainMode(newCaptainMode);
+                    }
+                    
+                    GUI.enabled = true;
+                    
+                    if (!canEnableCaptainMode && !_state.CaptainModeEnabled)
+                    {
+                        GUILayout.Label("Need 4+ players, no ready", LobbyStyles.SteamIdStyle);
+                    }
+                    
+                    // Captain assignment dropdowns (only when enabled)
+                    if (_state.CaptainModeEnabled)
+                    {
+                        GUILayout.Space(5);
+                        
+                        // Team A Captain
+                        string captainAName = GetPlayerName(_state.CaptainTeamA) ?? "Select Captain A";
+                        if (GUILayout.Button($"Captain A: {captainAName}", LobbyStyles.ButtonStyle, GUILayout.Height(30)))
+                        {
+                            _showCaptainSelector = true;
+                            _captainSelectorForTeam = 1;
+                        }
+                        
+                        // Team B Captain
+                        string captainBName = GetPlayerName(_state.CaptainTeamB) ?? "Select Captain B";
+                        if (GUILayout.Button($"Captain B: {captainBName}", LobbyStyles.ButtonStyle, GUILayout.Height(30)))
+                        {
+                            _showCaptainSelector = true;
+                            _captainSelectorForTeam = 2;
+                        }
+                    }
+                    
+                    GUILayout.Space(8);
+                }
+                
                 string capDisplay = (_state.IsProtoLobbyReady && _protoLobby.IsReady) 
                     ? _protoLobby.GetCaptainName(_state.SelectedCaptainIndex) 
                     : $"Captain {_state.SelectedCaptainIndex + 1}";
@@ -136,39 +185,15 @@ namespace SiroccoLobby.UI
                 
                 GUILayout.FlexibleSpace();
                 
-                // 3. Footer Area
-                GUILayout.BeginHorizontal(LobbyStyles.BoxStyle ?? GUI.skin.box);
-                int currentP = _state.CurrentLobby != null ? _state.CurrentLobbyMemberCount : 0;
-                int maxP = _state.CurrentLobby != null ? _state.CurrentLobbyMaxPlayers : 0;
-                GUILayout.Label($"Players: {currentP}/{maxP}", LobbyStyles.HeaderStyle);
-                
-                GUILayout.FlexibleSpace();
-                
-                // Ready/Start - LARGER, more prominent with color coding
-                GUIStyle? readyStyle = _state.IsLocalReady 
-                    ? (LobbyStyles.ReadyButtonReady ?? LobbyStyles.ButtonStyle)
-                    : (LobbyStyles.ReadyButtonNotReady ?? LobbyStyles.ButtonStyle);
-
-                if (GUILayout.Button(_state.IsLocalReady ? "✓ READY!" : "NOT READY", readyStyle ?? GUI.skin.button, GUILayout.Width(180), GUILayout.Height(50)))
+                // 3. Footer Area - Draft UI or Ready/Start buttons
+                if (_state.CaptainModeEnabled && _state.CaptainModePhase == CaptainModePhase.Drafting)
                 {
-                    _controller.ToggleReady();
+                    DrawDraftInterface();
                 }
-                
-                if (_state.IsHost)
+                else
                 {
-                    GUILayout.Space(10);
-                    GUI.enabled = _state.IsLocalReady;
-                    GUIStyle? startStyle = _state.IsLocalReady
-                        ? (LobbyStyles.StartGameButton ?? LobbyStyles.ButtonStyle)
-                        : (LobbyStyles.ButtonDisabled ?? LobbyStyles.ButtonStyle);
-
-                    if (GUILayout.Button("⚔ START GAME", startStyle ?? GUI.skin.button, GUILayout.Width(200), GUILayout.Height(55)))
-                    {
-                        _controller.StartGame();
-                    }
-                    GUI.enabled = true;
+                    DrawReadyStartButtons();
                 }
-                GUILayout.EndHorizontal();
                 
                 // Connection Info
                 GUILayout.BeginHorizontal();
@@ -217,8 +242,212 @@ namespace SiroccoLobby.UI
                     }
                 }
             }
+            
+            // Captain Selector Overlay (for captain mode assignment)
+            if (_showCaptainSelector)
+            {
+                try
+                {
+                    string title = _captainSelectorForTeam == 1 ? "Select Captain for Team A" : "Select Captain for Team B";
+                    GUI.Box(_captainSelectorRect, title, LobbyStyles.WindowStyle ?? GUI.skin.window);
+                    GUILayout.BeginArea(_captainSelectorRect);
+                    GUILayout.Space(25);
+                    DrawCaptainSelectorContent();
+                    GUILayout.EndArea();
+                }
+                catch (System.Exception ex)
+                {
+                    // Throttle overlay errors
+                    if (Event.current.type == EventType.Repaint)
+                    {
+                        long now = System.DateTime.Now.Ticks / 10000000;
+                        if (now > _lastLogTime + 5)
+                        {
+                            _log.Error($"[UI Room] Captain selector error: {ex.Message}");
+                            _lastLogTime = now;
+                        }
+                    }
+                }
+            }
         }
 
+        private void DrawCaptainSelectorContent()
+        {
+            GUILayout.BeginVertical();
+            
+            GUILayout.Label("Select a player to be captain:", LobbyStyles.HeaderStyle);
+            GUILayout.Space(10);
+            
+            // Get the other captain's Steam ID to prevent duplicates
+            string? otherCaptain = _captainSelectorForTeam == 1 ? _state.CaptainTeamB : _state.CaptainTeamA;
+            
+            // List all lobby members
+            foreach (var member in _state.Members)
+            {
+                if (member.SteamId == null) continue;
+                
+                // Disable if already the other captain
+                bool isOtherCaptain = !string.IsNullOrEmpty(otherCaptain) && string.Equals(member.SteamId, otherCaptain);
+                
+                GUI.enabled = !isOtherCaptain;
+                
+                string buttonLabel = member.Name ?? "Unknown";
+                if (isOtherCaptain) buttonLabel += " (Other Captain)";
+                
+                if (GUILayout.Button(buttonLabel, LobbyStyles.ButtonStyle, GUILayout.Height(35)))
+                {
+                    _controller.AssignCaptain(_captainSelectorForTeam, member.SteamId?.ToString() ?? "");
+                    _showCaptainSelector = false;
+                    _log.Msg($"[Captain Mode] Assigned {member.Name} as Captain {(_captainSelectorForTeam == 1 ? "A" : "B")}");
+                }
+                
+                GUI.enabled = true;
+            }
+            
+            GUILayout.FlexibleSpace();
+            
+            if (GUILayout.Button("Cancel", LobbyStyles.ButtonStyle, GUILayout.Height(35)))
+            {
+                _showCaptainSelector = false;
+            }
+            
+            GUILayout.EndVertical();
+        }
+
+        private void DrawReadyStartButtons()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            
+            GUILayout.BeginVertical();
+            
+            // Check if ready is locked due to captain mode drafting
+            bool canReady = !_state.CaptainModeEnabled || _state.CaptainModePhase == CaptainModePhase.Complete;
+            
+            if (!canReady)
+            {
+                // Locked during draft
+                GUI.enabled = false;
+                GUILayout.Button("Waiting for draft...", LobbyStyles.ReadyButtonNotReady ?? LobbyStyles.ButtonStyle, GUILayout.Width(400), GUILayout.Height(50));
+                GUI.enabled = true;
+            }
+            else
+            {
+                // Normal ready button
+                GUIStyle? readyStyle = _state.IsLocalReady 
+                    ? (LobbyStyles.ReadyButtonReady ?? LobbyStyles.ButtonStyle)
+                    : (LobbyStyles.ReadyButtonNotReady ?? LobbyStyles.ButtonStyle);
+
+                if (GUILayout.Button(_state.IsLocalReady ? "✓ READY!" : "NOT READY", readyStyle ?? GUI.skin.button, GUILayout.Width(400), GUILayout.Height(50)))
+                {
+                    _controller.ToggleReady();
+                }
+            }
+            
+            if (_state.IsHost)
+            {
+                GUILayout.Space(8);
+                
+                // Can only start if ready AND (captain mode not enabled OR draft complete)
+                bool canStart = _state.IsLocalReady && 
+                               (!_state.CaptainModeEnabled || _state.CaptainModePhase == CaptainModePhase.Complete);
+                
+                GUI.enabled = canStart;
+                GUIStyle? startStyle = canStart
+                    ? (LobbyStyles.StartGameButton ?? LobbyStyles.ButtonStyle)
+                    : (LobbyStyles.ButtonDisabled ?? LobbyStyles.ButtonStyle);
+
+                if (GUILayout.Button("START GAME", startStyle ?? GUI.skin.button, GUILayout.Width(400), GUILayout.Height(55)))
+                {
+                    _controller.StartGame();
+                }
+                GUI.enabled = true;
+            }
+            
+            GUILayout.EndVertical();
+            
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawDraftInterface()
+        {
+            GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box);
+            
+            // Draft header
+            GUILayout.Label("CAPTAIN DRAFT IN PROGRESS", LobbyStyles.TitleStyle);
+            GUILayout.Space(10);
+            
+            // Show current picking captain
+            string? currentCaptainId = _state.CurrentPickingTeam == 1 ? _state.CaptainTeamA : _state.CaptainTeamB;
+            string currentCaptainName = GetPlayerName(currentCaptainId) ?? "Unknown";
+            string teamLabel = _state.CurrentPickingTeam == 1 ? "Team A" : "Team B";
+            
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{teamLabel} Captain ({currentCaptainName}) is picking...", LobbyStyles.HeaderStyle);
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            
+            GUILayout.Space(10);
+            
+            // Available players (not yet picked, not captains)
+            var availablePlayers = _state.Members
+                .Where(m => m.SteamId != null && 
+                           !string.Equals(m.SteamId, _state.CaptainTeamA) && 
+                           !string.Equals(m.SteamId, _state.CaptainTeamB) &&
+                           !_state.PickedPlayers.Contains(m.SteamId))
+                .ToList();
+            
+            if (availablePlayers.Count > 0)
+            {
+                GUILayout.Label("Available Players:", LobbyStyles.HeaderStyle);
+                GUILayout.BeginHorizontal();
+                GUILayout.FlexibleSpace();
+                
+                // Show players in grid
+                GUILayout.BeginVertical(GUILayout.Width(600));
+                int playersPerRow = 3;
+                for (int i = 0; i < availablePlayers.Count; i += playersPerRow)
+                {
+                    GUILayout.BeginHorizontal();
+                    
+                    for (int j = 0; j < playersPerRow && (i + j) < availablePlayers.Count; j++)
+                    {
+                        var player = availablePlayers[i + j];
+                        
+                        // Only captain can pick
+                        bool isLocalCaptainPicking = _controller.IsLocalSteamId(currentCaptainId);
+                        GUI.enabled = isLocalCaptainPicking;
+                        
+                        if (GUILayout.Button(player.Name ?? "Unknown", LobbyStyles.ButtonStyle, GUILayout.Width(190), GUILayout.Height(40)))
+                        {
+                            _controller.PickPlayer(player.SteamId?.ToString());
+                        }
+                        
+                        GUI.enabled = true;
+                    }
+                    
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(5);
+                }
+                GUILayout.EndVertical();
+                
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+            else
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.FlexibleSpace();
+                GUILayout.Label("All players picked! Finalizing draft...", LobbyStyles.HeaderStyle);
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
+            
+            GUILayout.Space(10);
+            GUILayout.EndVertical();
+        }
 
         private void DrawCaptainWindowContent(int id)
         {
@@ -312,6 +541,22 @@ namespace SiroccoLobby.UI
             }
             GUILayout.EndVertical();
             
+            GUILayout.Space(15);
+            
+            // Lobby Feed (right side)
+            if (_state.CaptainModeEnabled && _state.LobbyFeed.Count > 0)
+            {
+                GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box, GUILayout.Width(200), GUILayout.ExpandHeight(false));
+                GUILayout.Label("ACTIVITY", LobbyStyles.HeaderStyle);
+                
+                foreach (var message in _state.LobbyFeed)
+                {
+                    GUILayout.Label(message, LobbyStyles.SteamIdStyle);
+                }
+                
+                GUILayout.EndVertical();
+            }
+            
             GUILayout.FlexibleSpace(); // Center the rosters
             GUILayout.EndHorizontal();
 
@@ -340,6 +585,13 @@ namespace SiroccoLobby.UI
                 }
 
                 string displayName = member.Name ?? "Unknown";
+                
+                // Add captain indicator for captain mode
+                bool isCaptain = _state.CaptainModeEnabled && 
+                                 member.SteamId != null && 
+                                 (string.Equals(member.SteamId, _state.CaptainTeamA) || string.Equals(member.SteamId, _state.CaptainTeamB));
+                if (isCaptain) displayName = "[C] " + displayName;
+                
                 if (member.IsHost) displayName += " (Host)";
                 if (member.SteamId != null && _controller.IsLocalSteamId(member.SteamId)) displayName += " (You)";
                 
@@ -360,6 +612,14 @@ namespace SiroccoLobby.UI
             }
             
             GUILayout.EndHorizontal();
+        }
+
+        private string? GetPlayerName(string? steamId)
+        {
+            if (string.IsNullOrEmpty(steamId)) return null;
+            
+            var member = _state.Members.FirstOrDefault(m => string.Equals(m.SteamId, steamId));
+            return member?.Name;
         }
     }
 }

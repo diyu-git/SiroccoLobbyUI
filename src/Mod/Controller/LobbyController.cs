@@ -301,6 +301,23 @@ namespace SiroccoLobby.Controller
             if (current != lobbyId.Value) return;
 
             if (_state.ShowDebugUI) _log.Msg($"[Events] Member {change}");
+            
+            // Check if a captain left during captain mode
+            if (_state.CaptainModeEnabled && (change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeLeft ||
+                                               change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeDisconnected ||
+                                               change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeKicked ||
+                                               change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeBanned))
+            {
+                string leftMemberId = memberId.Value.ToString();
+                bool captainLeft = string.Equals(leftMemberId, _state.CaptainTeamA) || string.Equals(leftMemberId, _state.CaptainTeamB);
+                
+                if (captainLeft)
+                {
+                    _log.Warning("[Captain Mode] Captain left - cancelling captain mode");
+                    ToggleCaptainMode(false); // Cancel captain mode
+                }
+            }
+            
             RefreshMembers(lobbyId.Value);
             AddPendingLobbyUpdate(lobbyId.Value);
         }
@@ -529,6 +546,200 @@ namespace SiroccoLobby.Controller
             }
         }
 
+        // Captain Mode Methods
+        
+        public void ToggleCaptainMode(bool enabled)
+        {
+            if (!_state.IsHost)
+            {
+                _log.Warning("[Captain Mode] Only host can toggle captain mode");
+                return;
+            }
+            
+            // Validate constraints
+            if (enabled)
+            {
+                // Must have 4+ players and no one ready
+                if (_state.Members.Count() < 4)
+                {
+                    _log.Warning("[Captain Mode] Need at least 4 players to enable captain mode");
+                    return;
+                }
+                
+                if (_state.Members.Any(m => m.IsReady))
+                {
+                    _log.Warning("[Captain Mode] Cannot enable captain mode when players are ready");
+                    return;
+                }
+                
+                _state.CaptainModeEnabled = true;
+                _state.CaptainModePhase = CaptainModePhase.AssigningCaptains;
+                _log.Msg("[Captain Mode] Enabled - assign captains to begin draft");
+            }
+            else
+            {
+                _state.CaptainModeEnabled = false;
+                _state.CaptainModePhase = CaptainModePhase.None;
+                _state.CaptainTeamA = null;
+                _state.CaptainTeamB = null;
+                _state.CurrentPickingTeam = 1;
+                _state.PickedPlayers.Clear();
+                _log.Msg("[Captain Mode] Disabled");
+            }
+            
+            // Sync to Steam lobby metadata
+            if (_state.CurrentLobby != null)
+            {
+                _steam.SetLobbyData(_state.CurrentLobby, "captain_mode", enabled ? "1" : "0");
+                _steam.SetLobbyData(_state.CurrentLobby, "captain_phase", ((int)_state.CaptainModePhase).ToString());
+                _steam.SetLobbyData(_state.CurrentLobby, "captain_team_a", _state.CaptainTeamA ?? "");
+                _steam.SetLobbyData(_state.CurrentLobby, "captain_team_b", _state.CaptainTeamB ?? "");
+            }
+        }
+        
+        public void AssignCaptain(int team, string steamId)
+        {
+            if (!_state.IsHost)
+            {
+                _log.Warning("[Captain Mode] Only host can assign captains");
+                return;
+            }
+            
+            if (!_state.CaptainModeEnabled)
+            {
+                _log.Warning("[Captain Mode] Captain mode not enabled");
+                return;
+            }
+            
+            if (team == 1)
+            {
+                _state.CaptainTeamA = steamId;
+            }
+            else if (team == 2)
+            {
+                _state.CaptainTeamB = steamId;
+            }
+            
+            // Sync to Steam
+            if (_state.CurrentLobby != null)
+            {
+                _steam.SetLobbyData(_state.CurrentLobby, $"captain_team_{(team == 1 ? "a" : "b")}", steamId);
+            }
+            
+            // Check if both captains assigned -> move to drafting phase
+            if (!string.IsNullOrEmpty(_state.CaptainTeamA) && !string.IsNullOrEmpty(_state.CaptainTeamB))
+            {
+                _state.CaptainModePhase = CaptainModePhase.Drafting;
+                _state.CurrentPickingTeam = 1; // Team A picks first
+                
+                if (_state.CurrentLobby != null)
+                {
+                    _steam.SetLobbyData(_state.CurrentLobby, "captain_phase", ((int)_state.CaptainModePhase).ToString());
+                }
+                
+                _log.Msg("[Captain Mode] Both captains assigned - drafting phase started");
+                _state.AddFeedMessage("Draft started!");
+            }
+            
+            _log.Msg($"[Captain Mode] Assigned captain for team {team}: {GetPlayerName(steamId) ?? steamId}");
+            string captainName = GetPlayerName(steamId) ?? "Unknown";
+            _state.AddFeedMessage($"Captain {(team == 1 ? "A" : "B")}: {captainName}");
+        }
+        
+        public void PickPlayer(string? steamId)
+        {
+            if (string.IsNullOrEmpty(steamId))
+            {
+                _log.Warning("[Captain Mode] Invalid Steam ID for pick");
+                return;
+            }
+            
+            if (!_state.CaptainModeEnabled || _state.CaptainModePhase != CaptainModePhase.Drafting)
+            {
+                _log.Warning("[Captain Mode] Not in drafting phase");
+                return;
+            }
+            
+            // Verify the local player is the current picking captain
+            string? currentCaptainId = _state.CurrentPickingTeam == 1 ? _state.CaptainTeamA : _state.CaptainTeamB;
+            if (!IsLocalSteamId(currentCaptainId))
+            {
+                _log.Warning("[Captain Mode] Not your turn to pick");
+                return;
+            }
+            
+            // Add to picked players list
+            _state.PickedPlayers.Add(steamId);
+            
+            // Assign to current captain's team
+            int targetTeam = _state.CurrentPickingTeam;
+            if (_state.CurrentLobby != null)
+            {
+                _steam.SetLobbyMemberData(_state.CurrentLobby, "team", targetTeam.ToString());
+                
+                // Sync picked player to lobby metadata (for other clients)
+                // We'll store the picked list as comma-separated Steam IDs
+                string pickedList = string.Join(",", _state.PickedPlayers);
+                _steam.SetLobbyData(_state.CurrentLobby, "picked_players", pickedList);
+            }
+            
+            _log.Msg($"[Captain Mode] Team {targetTeam} captain picked: {GetPlayerName(steamId) ?? steamId}");
+            
+            // Add to feed
+            string pickedName = GetPlayerName(steamId) ?? "Unknown";
+            string teamLabel = targetTeam == 1 ? "Team A" : "Team B";
+            _state.AddFeedMessage($"{teamLabel}: {pickedName}");
+            
+            // Snake draft: switch picking team
+            // Pattern: A, B, B, A, A, B, B, A...
+            int pickNumber = _state.PickedPlayers.Count;
+            int pairsComplete = (pickNumber - 1) / 2; // How many AB pairs done
+            bool isSecondInPair = (pickNumber % 2) == 0;
+            
+            if (isSecondInPair)
+            {
+                // Stay on same team (B picks twice, or A picks twice)
+                // Don't switch
+            }
+            else
+            {
+                // Switch team (after A's first pick, or after B's double pick)
+                _state.CurrentPickingTeam = _state.CurrentPickingTeam == 1 ? 2 : 1;
+            }
+            
+            // Sync picking team to lobby
+            if (_state.CurrentLobby != null)
+            {
+                _steam.SetLobbyData(_state.CurrentLobby, "current_picking_team", _state.CurrentPickingTeam.ToString());
+            }
+            
+            // Check if draft complete (all non-captain players picked)
+            int totalPlayers = _state.Members.Count();
+            int captains = 2;
+            int playersNeedingPick = totalPlayers - captains;
+            
+            if (_state.PickedPlayers.Count >= playersNeedingPick)
+            {
+                // Draft complete
+                _state.CaptainModePhase = CaptainModePhase.Complete;
+                
+                if (_state.CurrentLobby != null)
+                {
+                    _steam.SetLobbyData(_state.CurrentLobby, "captain_phase", ((int)_state.CaptainModePhase).ToString());
+                }
+                
+                _log.Msg("[Captain Mode] Draft complete! Ready for game start.");
+                _state.AddFeedMessage("Draft complete!");
+            }
+        }
+        
+        private string? GetPlayerName(string? steamId)
+        {
+            if (string.IsNullOrEmpty(steamId)) return null;
+            var member = _state.Members.FirstOrDefault(m => string.Equals(m.SteamId, steamId));
+            return member?.Name;
+        }
+
         public void ToggleReady_Host()
         {
             // Flip local ready state
@@ -626,11 +837,13 @@ namespace SiroccoLobby.Controller
                 
                 _log.Msg("[Client] Ready pressed – running vanilla Ready flow");
 
-                // 1. Mirror: Ready()
+                // 1. Mirror: Ready() - sends ready state + adds player to game
                 _protoLobby.CallNetworkClientReady(_state.SelectedCaptainIndex, _state.SelectedTeam);
 
-                // 2. Native: CompleteProtoLobbyClient()
-                _protoLobby.CompleteProtoLobbyClient();
+                // 2. DO NOT call CompleteProtoLobbyClient() here!
+                // Client should wait for host's RpcNotifyGameStarted() before completing.
+                // TODO: Implement OnGameStartReceived() handler to complete client flow when host starts game
+                // _protoLobby.CompleteProtoLobbyClient(); // REMOVED - called too early
             }
             else
             {
@@ -714,21 +927,28 @@ namespace SiroccoLobby.Controller
         public void StartGame()
         {
             if (!_state.IsHost){_log.Warning("[Client] Only host can start the game");return;}
+            
+            // Check captain mode draft completion
+            if (_state.CaptainModeEnabled && _state.CaptainModePhase != CaptainModePhase.Complete)
+            {
+                _log.Warning("[Host] Cannot start game - captain mode draft not complete");
+                return;
+            }
 
             _log.Msg("[Host] Starting Game...");
 
             if (_protoLobby == null){_log.Error("[Host] ProtoLobby is null");return;}
 
-            _log.Msg("[Host] Completing ProtoLobby...");
+            _log.Msg("[Host] Completing ProtoLobby - sending game start RPC to clients...");
             
-            // Capture current lobby/host to avoid races then exit Steam lobby and clear UI state
+            // CRITICAL: Send game start RPC BEFORE destroying Steam lobby
+            // CompleteProtoLobbyServer() sends RpcNotifyGameStarted() to all clients
+            _protoLobby.CompleteProtoLobbyServer();
+            
+            // THEN clean up Steam lobby after clients receive the signal
             var lobby = _state.CurrentLobby;
-            var wasHost = _state.IsHost;
-
             ExitSteamLobby(lobby);
             ClearLobbyState();
-            
-            _protoLobby.CompleteProtoLobbyServer();
 
             _state.ShowDebugUI = false;
         }
