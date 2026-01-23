@@ -17,7 +17,7 @@ First stable release of Sirocco Lobby UI - A custom Steam lobby browser and mult
 - **Steam Lobby Browser** - Browse and filter available Steam lobbies with real-time updates
 - **5v5 Lobby Room** - 10 player slots with team assignments and ready status
 - **Host/Join Flow** - Create lobbies as host or join existing lobbies as client
-- **Real-time Updates** - Automatic lobby list refresh and member state synchronization
+- **Auto-Refresh** - Automatic lobby list refresh every 5 seconds (toggleable)
 - **F5 Toggle** - Quick access to lobby browser from main menu
 
 #### Multiplayer Integration

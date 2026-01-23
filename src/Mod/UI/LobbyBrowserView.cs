@@ -13,6 +13,11 @@ namespace SiroccoLobby.UI
         private readonly MelonLogger.Instance _log;
 
         private Vector2 _scrollPosition;
+        
+        // Auto-refresh configuration
+        private const float AUTO_REFRESH_INTERVAL = 5.0f; // Refresh every 5 seconds
+        private float _lastRefreshTime;
+        private bool _autoRefreshEnabled = true;
 
         public LobbyBrowserView(
             LobbyState state, 
@@ -22,11 +27,21 @@ namespace SiroccoLobby.UI
             _state = state;
             _controller = controller;
             _log = log;
+            _lastRefreshTime = Time.time;
         }
 
         public void Draw()
         {
             if (!_state.ShowDebugUI) return;
+
+            // Auto-refresh logic - only when browser is visible and in browser state
+            if (_autoRefreshEnabled && 
+                _state.ViewState == LobbyUIState.Browser &&
+                Time.time - _lastRefreshTime >= AUTO_REFRESH_INTERVAL)
+            {
+                _controller.RefreshLobbyList();
+                _lastRefreshTime = Time.time;
+            }
 
             // Use the same root BoxStyle as RoomView for consistency
             GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box);
@@ -54,14 +69,40 @@ namespace SiroccoLobby.UI
                 if (GUILayout.Button("Refresh", LobbyStyles.ButtonStyle, GUILayout.Width(150), GUILayout.Height(35)))
                 {
                     _controller.RefreshLobbyList();
+                    _lastRefreshTime = Time.time; // Reset timer on manual refresh
                 }
                 GUILayout.Space(5);
+                
+                // Auto-refresh toggle button
+                string autoRefreshLabel = _autoRefreshEnabled ? "Auto: ON" : "Auto: OFF";
+                GUIStyle autoRefreshStyle = _autoRefreshEnabled ? LobbyStyles.ButtonStyle : LobbyStyles.ButtonDisabled;
+                if (GUILayout.Button(autoRefreshLabel, autoRefreshStyle, GUILayout.Width(100), GUILayout.Height(35)))
+                {
+                    _autoRefreshEnabled = !_autoRefreshEnabled;
+                    if (_autoRefreshEnabled)
+                    {
+                        _lastRefreshTime = Time.time; // Reset timer when enabling
+                    }
+                }
+                GUILayout.Space(5);
+                
                 if (GUILayout.Button("Create Lobby", LobbyStyles.ButtonStyle, GUILayout.Width(150), GUILayout.Height(35)))
                 {
                     _controller.CreateLobby();
                 }
                 GUILayout.FlexibleSpace();
-                GUILayout.Label($"{_state.CachedLobbies.Count} lobbies found", LobbyStyles.HeaderStyle);
+                
+                // Show countdown if auto-refresh is enabled
+                string lobbyCountText = $"{_state.CachedLobbies.Count} lobbies found";
+                if (_autoRefreshEnabled)
+                {
+                    float timeUntilRefresh = AUTO_REFRESH_INTERVAL - (Time.time - _lastRefreshTime);
+                    if (timeUntilRefresh > 0)
+                    {
+                        lobbyCountText += $" (refresh in {timeUntilRefresh:F0}s)";
+                    }
+                }
+                GUILayout.Label(lobbyCountText, LobbyStyles.HeaderStyle);
                 GUILayout.EndHorizontal();
                 
                 GUILayout.Space(10);
