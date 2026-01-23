@@ -38,17 +38,25 @@ Before installing this mod, you **must** have:
 2. **Download Latest Release**
    - Get the mod from [Releases page](https://github.com/diyu-git/SiroccoLobbyUI/releases/latest)
 
-3. **Copy Files to Game**
+3. **Download Steamworks.NET Dependencies**
+   - Download `Steamworks.NET-Standalone_2025.163.0.zip` from [Steamworks.NET Releases](https://github.com/rlabrecque/Steamworks.NET/releases)
+   - Extract `Windows-x64\Steamworks.NET.dll`
+   - Extract `Windows-x64\steam_api64.dll`
+
+4. **Copy Files to Game**
    ```
-   Extract to: <Steam>\steamapps\common\Sirocco\Mods\
+   Create folder: <Steam>\steamapps\common\Sirocco\Mods\SiroccoLobbyUI_Lib\
    
-   Files (all 3 required):
-   - SiroccoLobbyUI.dll
-   - SteamLobbyLib.dll
-   - Steamworks.NET.dll
+   Copy to SiroccoLobbyUI_Lib\:
+   - Steamworks.NET.dll (from Steamworks.NET download)
+   - steam_api64.dll (from Steamworks.NET download)
+   
+   Copy to Mods\:
+   - SiroccoLobbyUI.dll (from release)
+   - SteamLobbyLib.dll (from release)
    ```
 
-4. **Launch & Play**
+5. **Launch & Play**
    - Start Sirocco via Steam
    - Press **F5** to open lobby browser
 
