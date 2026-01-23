@@ -179,9 +179,12 @@ namespace SiroccoLobby.Services
                 if (!_hasWarnedMissingPlayerStatusRefs)
                 {
                     _hasWarnedMissingPlayerStatusRefs = true;
+                    // Diagnostic for dev/debug only; users don't need to see this every ready-toggle.
+                    #if DEBUG
                     MelonLoader.MelonLogger.Warning(
                         "[NetworkIntegrationService] Cannot update player status yet (tester reflection not ready). " +
                         $"TesterInstance={( _reflection.TesterInstance != null)}, CachedInfoField={( _reflection.CachedInfoField != null)}, PlayersListProp={( _reflection.PlayersListProp != null)}");
+                    #endif
 
                     // One-time: try to grab whatever the game has instantiated and dump it.
                     // This helps us understand the real runtime object graph even if we can't see IL2CPP method bodies.
@@ -232,7 +235,7 @@ namespace SiroccoLobby.Services
 
                 if (_reflection.TesterInstance == null)
                 {
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Proto-lobby dump skipped ({reason}): SteamP2PNetworkTester instance not found.");
+                    // Silently skip: this is expected in production flow and we've already logged once via _hasWarnedMissingPlayerStatusRefs
                     return;
                 }
 
