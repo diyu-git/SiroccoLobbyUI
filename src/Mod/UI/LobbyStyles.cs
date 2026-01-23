@@ -18,6 +18,13 @@ namespace SiroccoLobby.UI
         public static GUIStyle? PlayerCapStyle;
         public static GUIStyle? PlayerStatusStyle;
 
+        // New: Primary action buttons with state colors
+        public static GUIStyle? ReadyButtonNotReady;
+        public static GUIStyle? ReadyButtonReady;
+        public static GUIStyle? StartGameButton;
+        public static GUIStyle? ButtonDisabled;
+        public static GUIStyle? SuccessFeedbackStyle;
+
         private static bool _initialized;
 
         // Oceanic Palette
@@ -168,6 +175,82 @@ namespace SiroccoLobby.UI
                     fontStyle = FontStyle.Bold,
                     normal = { textColor = ColorAquaGlow },
                     alignment = TextAnchor.MiddleRight
+                };
+
+                // Ready Button - Not Ready (Red/Warning)
+                ReadyButtonNotReady = new GUIStyle(ButtonStyle)
+                {
+                    fontSize = 18,
+                    fontStyle = FontStyle.Bold,
+                    normal = {
+                        textColor = new Color(1f, 0.9f, 0.9f),
+                        background = MakeRoundedTex(128, 32, new Color(0.7f, 0.2f, 0.2f, 1f), 8) // Red
+                    },
+                    hover = {
+                        textColor = Color.white,
+                        background = MakeRoundedTex(128, 32, new Color(0.9f, 0.3f, 0.3f, 1f), 8)
+                    },
+                    active = {
+                        background = MakeRoundedTex(128, 32, new Color(0.6f, 0.15f, 0.15f, 1f), 8)
+                    }
+                };
+
+                // Ready Button - Ready (Green/Success)
+                ReadyButtonReady = new GUIStyle(ButtonStyle)
+                {
+                    fontSize = 18,
+                    fontStyle = FontStyle.Bold,
+                    normal = {
+                        textColor = Color.white,
+                        background = MakeRoundedTex(128, 32, new Color(0.2f, 0.7f, 0.3f, 1f), 8) // Green
+                    },
+                    hover = {
+                        textColor = Color.white,
+                        background = MakeRoundedTex(128, 32, new Color(0.3f, 0.85f, 0.4f, 1f), 8)
+                    },
+                    active = {
+                        background = MakeRoundedTex(128, 32, new Color(0.15f, 0.6f, 0.2f, 1f), 8)
+                    }
+                };
+
+                // Start Game Button (Gold/Primary for Host)
+                StartGameButton = new GUIStyle(ButtonStyle)
+                {
+                    fontSize = 20,
+                    fontStyle = FontStyle.Bold,
+                    normal = {
+                        textColor = new Color(0.1f, 0.1f, 0.1f),
+                        background = MakeRoundedTex(128, 32, new Color(1f, 0.84f, 0.0f, 1f), 8) // Gold
+                    },
+                    hover = {
+                        textColor = new Color(0.05f, 0.05f, 0.05f),
+                        background = MakeRoundedTex(128, 32, new Color(1f, 0.95f, 0.3f, 1f), 8)
+                    },
+                    active = {
+                        background = MakeRoundedTex(128, 32, new Color(0.85f, 0.7f, 0.0f, 1f), 8)
+                    }
+                };
+
+                // Disabled Button State
+                ButtonDisabled = new GUIStyle(ButtonStyle)
+                {
+                    normal = {
+                        textColor = new Color(0.5f, 0.5f, 0.5f, 0.6f),
+                        background = MakeRoundedTex(128, 32, new Color(0.15f, 0.15f, 0.15f, 0.4f), 8)
+                    },
+                    hover = {
+                        textColor = new Color(0.5f, 0.5f, 0.5f, 0.6f),
+                        background = MakeRoundedTex(128, 32, new Color(0.15f, 0.15f, 0.15f, 0.4f), 8)
+                    }
+                };
+
+                // Success Feedback Label (for "Copied!" etc.)
+                SuccessFeedbackStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 12,
+                    fontStyle = FontStyle.Bold,
+                    normal = { textColor = new Color(0.3f, 0.9f, 0.4f) }, // Bright green
+                    alignment = TextAnchor.MiddleLeft
                 };
 
                 _initialized = true;

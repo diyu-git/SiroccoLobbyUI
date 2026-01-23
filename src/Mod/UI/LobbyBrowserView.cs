@@ -33,10 +33,26 @@ namespace SiroccoLobby.UI
 
             try 
             {
+                // Title Bar with Help and Close buttons
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("SIROCCO NAVAL COMMAND", LobbyStyles.TitleStyle);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("?", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
+                {
+                    _log.Msg("[Help] F5: Toggle UI | ESC: Cancel Actions");
+                    // Future: Open help modal or URL
+                }
+                if (GUILayout.Button("X", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
+                {
+                    _state.ShowDebugUI = false;
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.Space(5);
+
                 // Centered Header
                 GUILayout.BeginHorizontal();
                 GUILayout.FlexibleSpace();
-                GUILayout.Label("LOBBY BROWSER", LobbyStyles.TitleStyle); 
+                GUILayout.Label("LOBBY BROWSER", LobbyStyles.HeaderStyle); 
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 GUILayout.Space(10);
@@ -78,12 +94,21 @@ namespace SiroccoLobby.UI
                         GUILayout.Label($"{currentPlayers}/{maxPlayers}", GUILayout.Width(100));
                         
                         bool isFull = lobby.IsFull;
-                        GUI.enabled = !isFull;
-                        if (GUILayout.Button(isFull ? "FULL" : "Join", LobbyStyles.ButtonStyle, GUILayout.Width(100)))
+                        
+                        if (isFull)
                         {
-                            _controller.JoinLobby(lobby.LobbyId);
+                            // Show disabled FULL button (not clickable)
+                            GUI.enabled = false;
+                            GUILayout.Button("FULL", LobbyStyles.ButtonDisabled ?? LobbyStyles.ButtonStyle, GUILayout.Width(100));
+                            GUI.enabled = true;
                         }
-                        GUI.enabled = true;
+                        else
+                        {
+                            if (GUILayout.Button("Join", LobbyStyles.ButtonStyle, GUILayout.Width(100)))
+                            {
+                                _controller.JoinLobby(lobby.LobbyId);
+                            }
+                        }
                         
                         GUILayout.EndHorizontal();
                     }

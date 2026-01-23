@@ -15,6 +15,10 @@ namespace SiroccoLobby.UI
         private readonly ProtoLobbyIntegration _protoLobby;
         private long _lastLogTime = 0;
 
+        // Copy feedback state
+        private bool _showCopiedFeedback = false;
+        private float _copiedFeedbackUntil = 0f;
+
         public LobbyRoomView(
             LobbyState state, 
             LobbyController controller,
@@ -39,15 +43,37 @@ namespace SiroccoLobby.UI
         {
             if (!_state.ShowDebugUI) return;
 
+            // Update copy feedback timer
+            if (_showCopiedFeedback && Time.realtimeSinceStartup > _copiedFeedbackUntil)
+            {
+                _showCopiedFeedback = false;
+            }
+
             // ENSURE BALANCED STACK: Start root vertical
             GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box);
 
             try 
             {
+                // Title Bar with Help and Close buttons
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("SIROCCO NAVAL COMMAND", LobbyStyles.TitleStyle);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("?", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
+                {
+                    _log.Msg("[Help] F5: Toggle UI | Ready: Toggle ready status | Teams: Click TEAM A/B header");
+                    // Future: Open help modal or URL
+                }
+                if (GUILayout.Button("X", LobbyStyles.ButtonStyle, GUILayout.Width(30), GUILayout.Height(30)))
+                {
+                    _state.ShowDebugUI = false;
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.Space(5);
+
                 // 1. Title Row
                 GUILayout.BeginHorizontal();
                 GUILayout.FlexibleSpace();
-                GUILayout.Label($"{_state.CachedLobbyName}", LobbyStyles.TitleStyle ?? GUI.skin.label);
+                GUILayout.Label($"{_state.CachedLobbyName}", LobbyStyles.HeaderStyle);
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
                 
@@ -62,11 +88,20 @@ namespace SiroccoLobby.UI
                 {
                     _controller.EndLobby(SiroccoLobby.Controller.LobbyController.LobbyEndMode.UserLeave);
                 }
+
+                GUILayout.BeginHorizontal();
                 if (GUILayout.Button("Copy Host ID", LobbyStyles.ButtonStyle, GUILayout.Height(30)))
                 {
                     GUIUtility.systemCopyBuffer = _state.HostSteamId;
                     _log.Msg($"Copied host Steam ID: {_state.HostSteamId}");
+                    _showCopiedFeedback = true;
+                    _copiedFeedbackUntil = Time.realtimeSinceStartup + 2f; // Show for 2 seconds
                 }
+                if (_showCopiedFeedback)
+                {
+                    GUILayout.Label("✓ Copied!", LobbyStyles.SuccessFeedbackStyle, GUILayout.Width(60));
+                }
+                GUILayout.EndHorizontal();
                 
                 GUILayout.Space(8);
                 
@@ -109,8 +144,12 @@ namespace SiroccoLobby.UI
                 
                 GUILayout.FlexibleSpace();
                 
-                // Ready/Start
-                if (GUILayout.Button(_state.IsLocalReady ? "READY!" : "NOT READY", LobbyStyles.ButtonStyle, GUILayout.Width(150), GUILayout.Height(35)))
+                // Ready/Start - LARGER, more prominent with color coding
+                GUIStyle? readyStyle = _state.IsLocalReady 
+                    ? (LobbyStyles.ReadyButtonReady ?? LobbyStyles.ButtonStyle)
+                    : (LobbyStyles.ReadyButtonNotReady ?? LobbyStyles.ButtonStyle);
+
+                if (GUILayout.Button(_state.IsLocalReady ? "✓ READY!" : "NOT READY", readyStyle ?? GUI.skin.button, GUILayout.Width(180), GUILayout.Height(50)))
                 {
                     _controller.ToggleReady();
                 }
@@ -119,7 +158,11 @@ namespace SiroccoLobby.UI
                 {
                     GUILayout.Space(10);
                     GUI.enabled = _state.IsLocalReady;
-                    if (GUILayout.Button("START GAME", LobbyStyles.ButtonStyle, GUILayout.Width(150), GUILayout.Height(35)))
+                    GUIStyle? startStyle = _state.IsLocalReady
+                        ? (LobbyStyles.StartGameButton ?? LobbyStyles.ButtonStyle)
+                        : (LobbyStyles.ButtonDisabled ?? LobbyStyles.ButtonStyle);
+
+                    if (GUILayout.Button("⚔ START GAME", startStyle ?? GUI.skin.button, GUILayout.Width(200), GUILayout.Height(55)))
                     {
                         _controller.StartGame();
                     }
@@ -235,9 +278,10 @@ namespace SiroccoLobby.UI
 
             // TEAM A
             GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box, GUILayout.Width(400), GUILayout.ExpandHeight(false));
-            // Header is now the button to join the team
+            
+            // Clickable team header with strong visual feedback
             GUIStyle? t1Style = (_state.SelectedTeam == 1) ? (LobbyStyles.TeamSelectedStyle ?? LobbyStyles.HeaderStyle) : (LobbyStyles.TeamUnselectedStyle ?? LobbyStyles.HeaderStyle);
-            if (GUILayout.Button("TEAM A", t1Style ?? GUI.skin.button, GUILayout.Height(30)))
+            if (GUILayout.Button("⚓ TEAM A", t1Style ?? GUI.skin.button, GUILayout.Height(35)))
             {
                 _controller.SelectCaptainAndTeam(_state.SelectedCaptainIndex, 1);
             }
@@ -253,9 +297,10 @@ namespace SiroccoLobby.UI
             
             // TEAM B
             GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box, GUILayout.Width(400), GUILayout.ExpandHeight(false));
-            // Header is now the button to join the team
+            
+            // Clickable team header with strong visual feedback
             GUIStyle? t2Style = (_state.SelectedTeam == 2) ? (LobbyStyles.TeamSelectedStyle ?? LobbyStyles.HeaderStyle) : (LobbyStyles.TeamUnselectedStyle ?? LobbyStyles.HeaderStyle);
-            if (GUILayout.Button("TEAM B", t2Style ?? GUI.skin.button, GUILayout.Height(30)))
+            if (GUILayout.Button("⚓ TEAM B", t2Style ?? GUI.skin.button, GUILayout.Height(35)))
             {
                 _controller.SelectCaptainAndTeam(_state.SelectedCaptainIndex, 2);
             }
