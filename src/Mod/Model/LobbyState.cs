@@ -60,6 +60,7 @@ namespace SiroccoLobby.Model
         public bool IsSearchingForHostedLobby { get; set; }
         public bool ShowDebugUI { get; set; } = false;
         public bool IsProtoLobbyReady { get; set; } = false;
+        public bool GameHasStarted { get; set; } = false; // Prevent reopening UI after game starts
 
         public void ClearLobby()
         {

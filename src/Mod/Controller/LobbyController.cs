@@ -16,7 +16,7 @@ namespace SiroccoLobby.Controller
         private readonly LobbyState _state;
         private readonly ISteamLobbyService _steam;
         private readonly SteamLobbyServiceWrapper? _wrapper;
-        private readonly ProtoLobbyIntegration _protoLobby; // Added
+        private readonly ProtoLobbyIntegration? _protoLobby; // Nullable since it may not be initialized yet
         private readonly MelonLogger.Instance _log;
         private readonly CaptainSelectionController? _captainController;
 
@@ -24,6 +24,7 @@ namespace SiroccoLobby.Controller
     private bool _loggedLocalSteamIdException;
     private bool _loggedSelectCaptainForwardException;
     private bool _loggedEndLobbyQuitException;
+    private bool _hasAttemptedConnection; // Track if we've connected to Mirror/Steam P2P
 
         public LobbyController(
             LobbyState state,
@@ -39,6 +40,26 @@ namespace SiroccoLobby.Controller
             _log = log;
             _wrapper = wrapper;
             _captainController = captainController;
+            
+            // Subscribe to client game start event
+            if (_protoLobby != null)
+            {
+                _protoLobby.OnClientGameStarted += OnClientGameStarted;
+            }
+        }
+        
+        private void OnClientGameStarted()
+        {
+            _log.Msg("[Client] Game starting - closing lobby UI and cleaning up...");
+            
+            // Close the UI
+            _state.ShowDebugUI = false;
+            _state.GameHasStarted = true; // Prevent reopening UI
+            
+            // Clean up Steam lobby (leave it so we don't show as "in lobby" in Steam)
+            var lobby = _state.CurrentLobby;
+            ExitSteamLobby(lobby);
+            ClearLobbyState();
         }
 
         public void RefreshLobbyList()
@@ -69,22 +90,30 @@ namespace SiroccoLobby.Controller
             if (_state.ShowDebugUI) _log.Msg("Waiting for Lobby Creation...");
         }
 
-        public void JoinLobby(object lobbyId)
+        public void JoinLobby(object lobbyId, string hostSteamId = "")
         {
-            // CRITICAL FIX: Get and store host Steam ID BEFORE joining
-            // This will be used for Riptide P2P connection in OnLobbyEntered
-            _state.HostSteamId = _steam.GetLobbyOwner(lobbyId)?.ToString() ?? "";
+            // Note: We receive hostSteamId from the browser for early validation/logging,
+            // but the AUTHORITATIVE host Steam ID will be retrieved in RefreshLobbyData()
+            // after we actually join the lobby.
             
-            _log.Msg($"[Client] Joining lobby hosted by SteamID64: {_state.HostSteamId}");
+            if (!string.IsNullOrEmpty(hostSteamId) && hostSteamId != "0")
+            {
+                _log.Msg($"[Client] Joining lobby hosted by SteamID64: {hostSteamId}");
+            }
+            else
+            {
+                _log.Msg($"[Client] Joining lobby {lobbyId} (host Steam ID will be retrieved after join)");
+            }
             
             if (_state.ShowDebugUI) _log.Msg($"Joining lobby: {lobbyId}");
             _steam.JoinLobby(lobbyId); // Trigger API
-            // Event will trigger OnLobbyEntered via Plugin
+            // Event will trigger OnLobbyEntered via Plugin, which calls RefreshLobbyData()
         }
 
         public void OnLobbyEntered(object lobbyId)
         {
             _state.CurrentLobby = lobbyId;
+            _hasAttemptedConnection = false; // Reset connection flag for new lobby
             
             // Initial Data Refresh
             RefreshLobbyData();
@@ -112,10 +141,10 @@ namespace SiroccoLobby.Controller
              _steam.SetLobbyMemberData(lobbyId, "captain_index", _state.SelectedCaptainIndex.ToString());
              _steam.SetLobbyMemberData(lobbyId, "is_ready", "False");
              
-             // CRITICAL: If client, connect to game server via Riptide P2P
+             // CRITICAL: Connection to Mirror/Steam P2P will happen automatically in OnUpdate()
+             // once ProtoLobby becomes ready (after client presses F5)
              if (!_state.IsHost)
              {
-                 // CRITICAL FIX: Use HostSteamId (SteamID64 string) for Riptide connection
                  if (string.IsNullOrEmpty(_state.HostSteamId))
                  {
                      _log.Error("[Client] HostSteamId is null! Cannot connect to game server.");
@@ -123,15 +152,7 @@ namespace SiroccoLobby.Controller
                      return;
                  }
                  
-                 _log.Msg($"[Client] Initiating Riptide P2P connection to host {_state.HostSteamId}...");
-                 if (_protoLobby != null && _protoLobby.IsReady)
-                 {
-                     _protoLobby.ConnectToGameServer(_state.HostSteamId);
-                 }
-                 else
-                 {
-                     _log.Error("[Client] ProtoLobby not ready! Cannot connect to game server.");
-                 }
+                 _log.Msg($"[Client] Will auto-connect to Mirror/Steam P2P once ProtoLobby is ready (host: {_state.HostSteamId})");
              }
 
             // Reset captain selection controller state for this lobby
@@ -159,13 +180,27 @@ namespace SiroccoLobby.Controller
             var localId = _steam.GetLocalSteamId();
             _state.IsHost = _steam.CSteamIDEquals(ownerId, localId);
 
-            // Host Steam ID: Prefer metadata, fallback to Owner ID
+            // Host Steam ID: Prefer metadata (set by host), fallback to Owner ID
             var hostIdStr = _steam.GetLobbyData(lobbyId, "host_steam_id");
             if (string.IsNullOrEmpty(hostIdStr) && ownerId != null)
             {
                  hostIdStr = _steam.GetSteamIDString(ownerId); 
             }
+            
+            // CRITICAL: This is the authoritative source for host Steam ID after joining
             _state.HostSteamId = hostIdStr;
+            
+            if (_state.ShowDebugUI) 
+            {
+                _log.Msg($"[RefreshLobbyData] Host Steam ID: '{_state.HostSteamId}' (IsHost: {_state.IsHost})");
+            }
+            
+            // Validate we got a valid host Steam ID
+            if (string.IsNullOrEmpty(_state.HostSteamId) || _state.HostSteamId == "0")
+            {
+                _log.Error($"[RefreshLobbyData] Failed to get valid host Steam ID for lobby {lobbyId}!");
+                _log.Error("[RefreshLobbyData] This lobby may be corrupted or the host has left.");
+            }
 
             // Lobby Name - Sync to cache via the new plumbing
             _state.CachedLobbyName = _steam.GetLobbyName(lobbyId);
@@ -185,6 +220,19 @@ namespace SiroccoLobby.Controller
 
                 int current = _steam.GetMemberCount(lobbyId);
                 int max = _steam.GetMemberLimit(lobbyId);
+                
+                // Try to get host Steam ID for display purposes
+                // This is best-effort - the authoritative value comes from RefreshLobbyData() after join
+                var ownerId = _steam.GetLobbyOwner(lobbyId);
+                string hostSteamId = ownerId?.ToString() ?? "";
+                
+                // Try metadata as secondary source (for lobbies we've previously joined)
+                if (string.IsNullOrEmpty(hostSteamId))
+                {
+                    hostSteamId = _steam.GetLobbyData(lobbyId, "host_steam_id");
+                }
+                
+                if (_state.ShowDebugUI) _log.Msg($"[Cache] Lobby {lobbyId} owner: '{hostSteamId}' (from owner API)");
 
                 list.Add(new SiroccoLobby.Model.LobbySummary
                 {
@@ -192,7 +240,8 @@ namespace SiroccoLobby.Controller
                     Name = name,
                     CurrentPlayers = current,
                     MaxPlayers = max,
-                    IsFull = current >= max
+                    IsFull = current >= max,
+                    HostSteamId = hostSteamId
                 });
             }
 
@@ -209,6 +258,21 @@ namespace SiroccoLobby.Controller
 
                 int current = _steam.GetMemberCount(lobbyId);
                 int max = _steam.GetMemberLimit(lobbyId);
+                
+                // CRITICAL: Always use GetLobbyOwner as primary source
+                var ownerId = _steam.GetLobbyOwner(lobbyId);
+                string hostSteamId = ownerId?.ToString() ?? "";
+                
+                // Try metadata as secondary source
+                if (string.IsNullOrEmpty(hostSteamId))
+                {
+                    hostSteamId = _steam.GetLobbyData(lobbyId, "host_steam_id");
+                }
+                
+                if (string.IsNullOrEmpty(hostSteamId))
+                {
+                    _log.Warning($"[UpdateSummary] Lobby {lobbyId} has no host Steam ID!");
+                }
 
                 var summary = new SiroccoLobby.Model.LobbySummary
                 {
@@ -216,7 +280,8 @@ namespace SiroccoLobby.Controller
                     Name = name,
                     CurrentPlayers = current,
                     MaxPlayers = max,
-                    IsFull = current >= max
+                    IsFull = current >= max,
+                    HostSteamId = hostSteamId
                 };
 
                 _state.UpdateOrAddLobbySummary(summary);
@@ -264,6 +329,13 @@ namespace SiroccoLobby.Controller
         public void OnLobbyListReceived(System.Collections.Generic.List<LobbyData> lobbies)
         {
             if (_state.ShowDebugUI) _log.Msg($"[Events] Lobby list received: {lobbies.Count} lobbies");
+            
+            // Log owner IDs from the lobby data to verify they're populated
+            foreach (var lobby in lobbies)
+            {
+                if (_state.ShowDebugUI) _log.Msg($"[Events] Lobby {lobby.Id.Value} owner: {lobby.OwnerId}");
+            }
+            
             _state.UpdateLobbyList(lobbies.Select(l => (object)l.Id.Value));
             RebuildLobbyCache();
         }
@@ -271,6 +343,26 @@ namespace SiroccoLobby.Controller
         public void OnLobbyJoined(LobbyId lobbyId)
         {
             if (_state.ShowDebugUI) _log.Msg($"[Events] Joined lobby: {lobbyId.Value}");
+            
+            // Check if this is the host's own lobby (just created)
+            var ownerId = _steam.GetLobbyOwner(lobbyId.Value);
+            var localId = _steam.GetLocalSteamId();
+            bool isOwnLobby = _steam.CSteamIDEquals(ownerId, localId);
+            
+            if (isOwnLobby && _state.IsSearchingForHostedLobby)
+            {
+                // This is the host's own lobby - set metadata before entering
+                string hostName = _steam.GetLocalPersonaName();
+                if (string.IsNullOrEmpty(hostName)) hostName = "Commander";
+                string lobbyName = $"{hostName}'s Lobby";
+                
+                _steam.SetLobbyData(lobbyId.Value, "name", lobbyName);
+                _steam.SetLobbyData(lobbyId.Value, "host_steam_id", localId?.ToString() ?? "");
+                _state.CachedLobbyName = lobbyName;
+                
+                if (_state.ShowDebugUI) _log.Msg($"[Host] Set lobby name: {lobbyName}");
+            }
+            
             OnLobbyEntered(lobbyId.Value);
             // Trigger immediate member refresh
             RefreshMembers(lobbyId.Value);
@@ -302,20 +394,16 @@ namespace SiroccoLobby.Controller
 
             if (_state.ShowDebugUI) _log.Msg($"[Events] Member {change}");
             
-            // Check if a captain left during captain mode
+            // Cancel captain mode if ANY player leaves during captain mode
+            // This invalidates the draft state and prevents broken team compositions
             if (_state.CaptainModeEnabled && (change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeLeft ||
                                                change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeDisconnected ||
                                                change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeKicked ||
                                                change == Steamworks.EChatMemberStateChange.k_EChatMemberStateChangeBanned))
             {
-                string leftMemberId = memberId.Value.ToString();
-                bool captainLeft = string.Equals(leftMemberId, _state.CaptainTeamA) || string.Equals(leftMemberId, _state.CaptainTeamB);
-                
-                if (captainLeft)
-                {
-                    _log.Warning("[Captain Mode] Captain left - cancelling captain mode");
-                    ToggleCaptainMode(false); // Cancel captain mode
-                }
+                _log.Warning("[Captain Mode] Player left during captain mode - cancelling draft");
+                _state.AddFeedMessage("Player left - draft cancelled");
+                ToggleCaptainMode(false); // Cancel captain mode
             }
             
             RefreshMembers(lobbyId.Value);
@@ -855,27 +943,34 @@ namespace SiroccoLobby.Controller
 
 
 
-        public void ConfirmHostedLobby(object lobbyId)
-        {
-            _log.Msg($"[Auto-Join] Found OUR lobby! {lobbyId}");
-            
-            // Publish Server Info FIRST (before OnLobbyEntered reads it)
-            var localId = _steam.GetLocalSteamId();
-            string hostName = _steam.GetLocalPersonaName();
-            if (string.IsNullOrEmpty(hostName)) hostName = "Commander";
-            string lobbyName = $"{hostName}'s Lobby";
-            _steam.SetLobbyData(lobbyId, "name", lobbyName); 
-            _state.CachedLobbyName = lobbyName; // Explicitly cache for local UI persistence
-
-            _log.Msg($"[Auto-Join] _steam.GetLocalSteamId() {localId}");
-            _steam.SetLobbyData(lobbyId, "host_steam_id", localId?.ToString() ?? "");
-            _log.Msg($"[Auto-Join] Lobby metadata set for {lobbyId}");
-                        
-            // Now delegate setup to OnLobbyEntered (which will read the name we just set)
-            OnLobbyEntered(lobbyId);
-        }
         public void OnUpdate()
         {
+            // ---------------------------------------------------------
+            // Auto-connect to Mirror/Steam P2P when ProtoLobby becomes ready
+            // ---------------------------------------------------------
+            if (!_state.IsHost && _state.CurrentLobby != null && _protoLobby != null && _protoLobby.IsReady)
+            {
+                // CRITICAL: Wait for valid host Steam ID before attempting connection
+                if (string.IsNullOrEmpty(_state.HostSteamId) || _state.HostSteamId == "0")
+                {
+                    // We're in the lobby but don't have a valid host Steam ID yet
+                    // This can happen if RefreshLobbyData() hasn't completed or the host left
+                    if (_state.ShowDebugUI && !_hasAttemptedConnection)
+                    {
+                        _log.Warning($"[Client] Waiting for valid host Steam ID before connecting (current: '{_state.HostSteamId}')...");
+                    }
+                    return; // Wait for next update cycle
+                }
+                
+                // Only connect if we have a host Steam ID AND we're not already connected
+                if (!_protoLobby.IsConnected && !_hasAttemptedConnection)
+                {
+                    _log.Msg($"[Client] ProtoLobby ready - connecting to Mirror/Steam P2P (host: {_state.HostSteamId})...");
+                    _protoLobby.ConnectToGameServer(_state.HostSteamId);
+                    _hasAttemptedConnection = true;
+                }
+            }
+            
             // ---------------------------------------------------------
             // 1. POLLING SYNC: Game Native -> UI
             // ---------------------------------------------------------
@@ -939,18 +1034,19 @@ namespace SiroccoLobby.Controller
 
             if (_protoLobby == null){_log.Error("[Host] ProtoLobby is null");return;}
 
-            _log.Msg("[Host] Completing ProtoLobby - sending game start RPC to clients...");
+            _log.Msg("[Host] Completing ProtoLobby - sending game start RPC to clients via Mirror/Steam P2P...");
             
-            // CRITICAL: Send game start RPC BEFORE destroying Steam lobby
-            // CompleteProtoLobbyServer() sends RpcNotifyGameStarted() to all clients
+            // Send game start RPC via Mirror network (Steam P2P)
+            // This is separate from the Steam lobby - clients must be connected to Mirror network to receive this
             _protoLobby.CompleteProtoLobbyServer();
             
-            // THEN clean up Steam lobby after clients receive the signal
+            // Steam lobby cleanup (doesn't affect RPC delivery since that uses Mirror/Steam P2P)
             var lobby = _state.CurrentLobby;
             ExitSteamLobby(lobby);
             ClearLobbyState();
 
             _state.ShowDebugUI = false;
+            _state.GameHasStarted = true; // Prevent reopening UI
         }
     }
 }

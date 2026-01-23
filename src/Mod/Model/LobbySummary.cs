@@ -9,5 +9,6 @@ namespace SiroccoLobby.Model
         public int CurrentPlayers { get; set; }
         public int MaxPlayers { get; set; }
         public bool IsFull { get; set; }
+        public string HostSteamId { get; set; } = string.Empty;
     }
 }

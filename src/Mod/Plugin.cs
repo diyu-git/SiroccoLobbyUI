@@ -133,6 +133,13 @@ namespace SiroccoLobby
             // F5 toggle
             if (Input.GetKeyDown(KeyCode.F5))
             {
+                // Don't allow reopening UI after game has started
+                if (_state?.GameHasStarted == true)
+                {
+                    MelonLogger.Msg("[UI] Cannot reopen lobby UI - game has already started");
+                    return;
+                }
+                
                 // Simple toggle logic
                 if (!_canShowUI)
                 {

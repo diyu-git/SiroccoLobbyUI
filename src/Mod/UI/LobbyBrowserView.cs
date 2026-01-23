@@ -96,9 +96,10 @@ namespace SiroccoLobby.UI
                         }
                         else
                         {
+                            // Always allow joining - RefreshLobbyData() after join will get authoritative host ID
                             if (GUILayout.Button("Join", LobbyStyles.ButtonStyle, GUILayout.Width(100)))
                             {
-                                _controller.JoinLobby(lobby.LobbyId);
+                                _controller.JoinLobby(lobby.LobbyId, lobby.HostSteamId);
                             }
                         }
                         

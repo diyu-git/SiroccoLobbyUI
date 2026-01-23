@@ -453,10 +453,32 @@ namespace SiroccoLobby.UI
         {
             GUILayout.BeginVertical();
             
-             if (_state.IsProtoLobbyReady && _protoLobby.IsReady)
+            // Check if ProtoLobby is available before trying to access captain data
+            if (!_state.IsProtoLobbyReady || !_protoLobby.IsReady)
             {
-                int captainCount = _protoLobby.GetCaptainCount();
+                GUILayout.Label("Game lobby not initialized", LobbyStyles.SteamIdStyle);
+                GUILayout.Label("", LobbyStyles.SteamIdStyle);
+                GUILayout.Label("Host must press F5 in-game first", LobbyStyles.SteamIdStyle);
+                GUILayout.Label("to initialize the game lobby", LobbyStyles.SteamIdStyle);
                 
+                if (GUILayout.Button("Close", LobbyStyles.ButtonStyle))
+                {
+                    _state.ShowCaptainDropdown = false;
+                }
+                
+                GUILayout.EndVertical();
+                return;
+            }
+            
+            // ProtoLobby is ready, show captain list
+            int captainCount = _protoLobby.GetCaptainCount();
+            
+            if (captainCount == 0)
+            {
+                GUILayout.Label("No captains available", LobbyStyles.SteamIdStyle);
+            }
+            else
+            {
                 // Scroll view for list
                 // We'll rely on Window's auto-layout for now, or add a scroll view if needed.
                 // Assuming < 10 captains, it fits.
@@ -471,11 +493,6 @@ namespace SiroccoLobby.UI
                         _log.Msg($"Selected Captain: {captainName}");
                     }
                 }
-            }
-            else
-            {
-                GUILayout.Label("ProtoLobby not initialized", LobbyStyles.SteamIdStyle);
-                GUILayout.Label("Press F5 to initialize game lobby", LobbyStyles.SteamIdStyle);
             }
             
             if (GUILayout.Button("Close", LobbyStyles.ButtonStyle))

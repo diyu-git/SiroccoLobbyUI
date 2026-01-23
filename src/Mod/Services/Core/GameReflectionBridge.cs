@@ -28,11 +28,14 @@ namespace SiroccoLobby.Services.Core
     public object? NetworkManagerInstance { get; private set; }
     public MethodInfo? StartSinglePlayerP2PMethod { get; private set; }
     public MethodInfo? StartSinglePlayerMethod { get; private set; }
+    public MethodInfo? StartClientMethod { get; private set; }
+    public MethodInfo? StartClientWithUriMethod { get; private set; }
     public MethodInfo? FinishStartHostMethod { get; private set; }
     public MethodInfo? StartHostClientMethod { get; private set; }
     public MethodInfo? StopClientMethod { get; private set; }
     public MethodInfo? StopServerMethod { get; private set; }
     public MethodInfo? StopHostMethod { get; private set; }
+    public PropertyInfo? NetworkAddressProp { get; private set; }
 
     public object? AuthenticatorInstance { get; private set; }
     public MethodInfo? OnClientAuthenticateMethod { get; private set; }
@@ -61,6 +64,7 @@ namespace SiroccoLobby.Services.Core
     public MethodInfo? IntegrateWithProtoLobbyMethod { get; private set; }
     public MethodInfo? CompleteSteamP2PProtoLobbyMethod { get; private set; }
     public MethodInfo? DisplayProtoLobbyPlayerStatusMethod { get; private set; }
+    public MethodInfo? ConnectToSteamIDMethod { get; private set; }
 
         public bool IsValid { get; private set; }
 
@@ -125,11 +129,56 @@ namespace SiroccoLobby.Services.Core
 
             StartSinglePlayerP2PMethod = managerType.GetMethod("StartSinglePlayerWithSteamP2P", BindingFlags.Public | BindingFlags.Instance);
             StartSinglePlayerMethod = managerType.GetMethod("StartSinglePlayer", BindingFlags.Public | BindingFlags.Instance);
+            
+            // Try to find StartClient methods - both parameterless and with Uri parameter
+            StartClientMethod = managerType.GetMethod("StartClient", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+            StartClientWithUriMethod = managerType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(m => m.Name == "StartClient" && m.GetParameters().Length == 1);
+            
+            if (StartClientMethod != null)
+                MelonLoader.MelonLogger.Msg("[GameReflectionBridge] Found NetworkManager.StartClient() (no parameters)");
+            if (StartClientWithUriMethod != null)
+            {
+                var paramType = StartClientWithUriMethod.GetParameters()[0].ParameterType.Name;
+                MelonLoader.MelonLogger.Msg($"[GameReflectionBridge] Found NetworkManager.StartClient({paramType})");
+            }
+            
             FinishStartHostMethod = managerType.GetMethod("FinishStartHost", BindingFlags.Public | BindingFlags.Instance);
             StartHostClientMethod = managerType.GetMethod("StartHostClient", BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
             StopClientMethod = managerType.GetMethod("StopClient", BindingFlags.Public | BindingFlags.Instance);
             StopServerMethod = managerType.GetMethod("StopServer", BindingFlags.Public | BindingFlags.Instance);
             StopHostMethod = managerType.GetMethod("StopHost", BindingFlags.Public | BindingFlags.Instance);
+            
+            // Try to find address property with different possible names/casings
+            // Also search in base types (Mirror.NetworkManager)
+            const BindingFlags addressFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            string[] addressNames = { "networkAddress", "NetworkAddress", "ServerAddress", "serverAddress", "targetAddress" };
+            
+            for (Type? t = managerType; t != null && NetworkAddressProp == null; t = t.BaseType)
+            {
+                foreach (var name in addressNames)
+                {
+                    NetworkAddressProp = t.GetProperty(name, addressFlags);
+                    if (NetworkAddressProp != null)
+                    {
+                        MelonLoader.MelonLogger.Msg($"[GameReflectionBridge] Found NetworkManager address property: {NetworkAddressProp.Name} on type {t.Name}");
+                        break;
+                    }
+                    
+                    // Also try as a field
+                    var field = t.GetField(name, addressFlags);
+                    if (field != null)
+                    {
+                        MelonLoader.MelonLogger.Msg($"[GameReflectionBridge] Found NetworkManager address field: {field.Name} on type {t.Name} (cannot use as property)");
+                    }
+                }
+            }
+            
+            if (NetworkAddressProp == null)
+            {
+                MelonLoader.MelonLogger.Warning("[GameReflectionBridge] NetworkManager address property not found - tried: " + string.Join(", ", addressNames));
+                MelonLoader.MelonLogger.Msg("[GameReflectionBridge] Will need to use StartClient(Uri) overload instead");
+            }
 
             // Authenticator discovery
             // In standard Mirror, NetworkManager has a public field `authenticator`.
@@ -293,6 +342,18 @@ namespace SiroccoLobby.Services.Core
             IntegrateWithProtoLobbyMethod = TesterType?.GetMethod("IntegrateWithProtoLobby", BindingFlags.Public | BindingFlags.Instance);
             CompleteSteamP2PProtoLobbyMethod = TesterType?.GetMethod("CompleteSteamP2PProtoLobby", BindingFlags.Public | BindingFlags.Instance);
             DisplayProtoLobbyPlayerStatusMethod = TesterType?.GetMethod("DisplayProtoLobbyPlayerStatus", BindingFlags.NonPublic | BindingFlags.Instance);
+            
+            // Look for ConnectToSteamID method specifically
+            ConnectToSteamIDMethod = TesterType?.GetMethod("ConnectToSteamID", BindingFlags.Public | BindingFlags.Instance);
+            if (ConnectToSteamIDMethod != null)
+            {
+                var paramsList = string.Join(", ", ConnectToSteamIDMethod.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"));
+                MelonLoader.MelonLogger.Msg($"[GameReflectionBridge] ✓ Found ConnectToSteamID({paramsList}) method!");
+            }
+            else
+            {
+                MelonLoader.MelonLogger.Warning("[GameReflectionBridge] ConnectToSteamID method not found on SteamP2PNetworkTester");
+            }
         }
 
         private static object? TryFindUnityObjectInstance(Type unityObjectType)

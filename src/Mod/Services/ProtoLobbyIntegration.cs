@@ -16,6 +16,7 @@ namespace SiroccoLobby.Services
         public LobbyCompletionService Completion { get; private set; }
 
         public event Action<bool>? OnReadyChanged;
+        public event Action? OnClientGameStarted; // New event for client game start
 
         private bool _initialized;
 
@@ -112,6 +113,11 @@ namespace SiroccoLobby.Services
         }
 
         private static void OnServerCompleted() => MelonLogger.Msg("[ProtoLobbyIntegration] Lobby server completed.");
-        private static void OnClientCompleted() => MelonLogger.Msg("[ProtoLobbyIntegration] Lobby client completed.");
+        
+        private void OnClientCompleted()
+        {
+            MelonLogger.Msg("[ProtoLobbyIntegration] Lobby client completed - game starting.");
+            OnClientGameStarted?.Invoke();
+        }
     }
 }
