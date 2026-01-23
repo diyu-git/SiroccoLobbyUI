@@ -53,3 +53,6 @@ Directory.Build.props.user
 
 # UI documentation folder with screenshots
 UI/
+
+# Release packages
+release/

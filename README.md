@@ -42,8 +42,9 @@ Before installing this mod, you **must** have:
    ```
    Extract to: <Steam>\steamapps\common\Sirocco\Mods\
    
-   Files:
+   Files (all 3 required):
    - SiroccoLobbyUI.dll
+   - SteamLobbyLib.dll
    - Steamworks.NET.dll
    ```
 
