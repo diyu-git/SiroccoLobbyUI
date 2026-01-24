@@ -39,6 +39,7 @@ namespace SiroccoLobby
         private bool _showUI = false;
         private bool _canShowUI = false;
         private bool _captainInitialized = false;
+        private bool _protoInitialized = false; // Track if ProtoLobby has been successfully initialized
         // Deferred ProtoLobby init attempts to avoid calling game reflection too early.
         private int _protoInitAttempts = 0;
         private int _lastProtoInitFrame = 0;
@@ -55,16 +56,12 @@ namespace SiroccoLobby
         public override void OnInitializeMelon()
         {
             MelonLogger.Msg("Sirocco Lobby UI initializing (Built on SLL)...");
-            Debug.Log("[ProtoLobby] Sirocco Lobby UI initializing (Built on SLL)...");
             
             // Apply Harmony patches (Tracing only)
             if (ENABLE_TRACING)
             {
                 HarmonyPatches.Apply(HarmonyInstance);
-            }
-            else
-            {
-                MelonLogger.Msg("Production Build: Tracing patches disabled.");
+                MelonLogger.Msg("Tracing patches enabled (debug mode).");
             }
             
             // Initialize services
@@ -150,25 +147,34 @@ namespace SiroccoLobby
                         _showUI = true;
                         if (_state != null) _state.ShowDebugUI = true;
                         
-                        // Initialize ProtoLobby
+                        // Initialize ProtoLobby (ONCE)
                         // Attempt a deferred initialization of the ProtoLobby integration. We try a few
                         // times over multiple frames to avoid doing reflection too early (Assembly-CSharp
                         // and game singletons may not be ready during Melon init).
-                        bool protoReady = false;
-                        int frame = UnityEngine.Time.frameCount;
-                        if (_protoInitAttempts == 0 || (frame - _lastProtoInitFrame) >= PROTO_INIT_FRAME_DELAY)
+                        bool protoReady = _protoInitialized; // If already initialized, use cached result
+                        
+                        if (!_protoInitialized)
                         {
-                            _lastProtoInitFrame = frame;
-                            _protoInitAttempts++;
+                            int frame = UnityEngine.Time.frameCount;
+                            if (_protoInitAttempts == 0 || (frame - _lastProtoInitFrame) >= PROTO_INIT_FRAME_DELAY)
+                            {
+                                _lastProtoInitFrame = frame;
+                                _protoInitAttempts++;
                                 try
                                 {
                                     protoReady = _protoLobby?.Initialize() == true;
+                                    if (protoReady)
+                                    {
+                                        _protoInitialized = true; // Mark as initialized
+                                        MelonLogger.Msg("ProtoLobby initialized successfully");
+                                    }
                                 }
                                 catch (Exception ex)
                                 {
                                     MelonLogger.Warning($"ProtoLobby.Initialize threw: {ex}");
                                     protoReady = false;
                                 }
+                            }
                         }
 
                         if (protoReady)

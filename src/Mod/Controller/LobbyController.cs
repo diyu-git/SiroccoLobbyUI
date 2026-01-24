@@ -25,6 +25,7 @@ namespace SiroccoLobby.Controller
     private bool _loggedSelectCaptainForwardException;
     private bool _loggedEndLobbyQuitException;
     private bool _hasAttemptedConnection; // Track if we've connected to Mirror/Steam P2P
+    private bool _loggedLobbyDataUpdate; // Track if we've logged at least one lobby data update
 
         public LobbyController(
             LobbyState state,
@@ -50,16 +51,19 @@ namespace SiroccoLobby.Controller
         
         private void OnClientGameStarted()
         {
-            _log.Msg("[Client] Game starting - closing lobby UI and cleaning up...");
+            _log.Msg("[Client] Game started - hiding lobby UI...");
             
-            // Close the UI
+            // Hide UI immediately and mark game as started (prevents reopening)
             _state.ShowDebugUI = false;
-            _state.GameHasStarted = true; // Prevent reopening UI
+            _state.GameHasStarted = true;
             
-            // Clean up Steam lobby (leave it so we don't show as "in lobby" in Steam)
-            var lobby = _state.CurrentLobby;
-            ExitSteamLobby(lobby);
-            ClearLobbyState();
+            // NOTE: We don't clear lobby state or exit Steam lobby here because:
+            // - Game might still need host/lobby info during startup
+            // - Steam lobby exit doesn't affect Mirror/Steam P2P game network
+            // - UI is hidden, which is what matters
+            // - Cleanup will happen naturally when returning to main menu
+            
+            _log.Msg("[Client] Lobby UI hidden, staying connected to game server via Mirror/Steam P2P");
         }
 
         public void RefreshLobbyList()
@@ -189,11 +193,6 @@ namespace SiroccoLobby.Controller
             
             // CRITICAL: This is the authoritative source for host Steam ID after joining
             _state.HostSteamId = hostIdStr;
-            
-            if (_state.ShowDebugUI) 
-            {
-                _log.Msg($"[RefreshLobbyData] Host Steam ID: '{_state.HostSteamId}' (IsHost: {_state.IsHost})");
-            }
             
             // Validate we got a valid host Steam ID
             if (string.IsNullOrEmpty(_state.HostSteamId) || _state.HostSteamId == "0")
@@ -377,7 +376,13 @@ namespace SiroccoLobby.Controller
 
             if (current != lobbyId.Value) return;
 
-            if (_state.ShowDebugUI) _log.Msg($"[Events] Current lobby updated");
+            // Log once to confirm the event system is working
+            if (_state.ShowDebugUI && !_loggedLobbyDataUpdate)
+            {
+                _log.Msg($"[Events] Lobby data updated");
+                _loggedLobbyDataUpdate = true;
+            }
+            
             RefreshLobbyData();
             RefreshMembers(lobbyId.Value);
             AddPendingLobbyUpdate(lobbyId.Value);
@@ -850,13 +855,6 @@ namespace SiroccoLobby.Controller
             }
         }
 
-        public uint HashprotoLobbyPlayerId(string protoLobbyPlayerId)
-        {
-            uint rpcId = StringToUintFNV1a.Compute(protoLobbyPlayerId);
-            MelonLogger.Msg($"[ProtoTrace] RPC hash = {rpcId}");
-            return rpcId;
-        }
-
         public void ToggleReady()
         {
             // Host constraint
@@ -1033,19 +1031,22 @@ namespace SiroccoLobby.Controller
 
             if (_protoLobby == null){_log.Error("[Host] ProtoLobby is null");return;}
 
-            _log.Msg("[Host] Completing ProtoLobby - sending game start RPC to clients via Mirror/Steam P2P...");
+            _log.Msg("[Host] Sending game start RPC to clients via Mirror/Steam P2P...");
             
-            // Send game start RPC via Mirror network (Steam P2P)
-            // This is separate from the Steam lobby - clients must be connected to Mirror network to receive this
+            // Send game start RPC via Mirror network (this is what actually starts the game)
             _protoLobby.CompleteProtoLobbyServer();
             
-            // Steam lobby cleanup (doesn't affect RPC delivery since that uses Mirror/Steam P2P)
-            var lobby = _state.CurrentLobby;
-            ExitSteamLobby(lobby);
-            ClearLobbyState();
-
+            // Hide UI immediately and mark game as started (prevents reopening)
             _state.ShowDebugUI = false;
-            _state.GameHasStarted = true; // Prevent reopening UI
+            _state.GameHasStarted = true;
+            
+            // NOTE: We don't clear lobby state or exit Steam lobby here because:
+            // - Game might still need host/lobby info during startup
+            // - Steam lobby exit doesn't affect Mirror/Steam P2P game network
+            // - UI is hidden, which is what matters
+            // - Cleanup will happen naturally when returning to main menu
+            
+            _log.Msg("[Host] Game started - UI hidden");
         }
     }
 }

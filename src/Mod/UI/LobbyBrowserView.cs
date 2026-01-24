@@ -76,7 +76,8 @@ namespace SiroccoLobby.UI
                 
                 // Auto-refresh toggle button
                 string autoRefreshLabel = _autoRefreshEnabled ? "Auto: ON" : "Auto: OFF";
-                GUIStyle autoRefreshStyle = _autoRefreshEnabled ? LobbyStyles.ButtonStyle : (LobbyStyles.ButtonDisabled ?? LobbyStyles.ButtonStyle);
+                var buttonStyle = _autoRefreshEnabled ? LobbyStyles.ButtonStyle : LobbyStyles.ButtonDisabled;
+                GUIStyle autoRefreshStyle = buttonStyle ?? LobbyStyles.ButtonStyle ?? GUI.skin.button;
                 if (GUILayout.Button(autoRefreshLabel, autoRefreshStyle, GUILayout.Width(100), GUILayout.Height(35)))
                 {
                     _autoRefreshEnabled = !_autoRefreshEnabled;
