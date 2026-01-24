@@ -34,9 +34,10 @@ namespace SiroccoLobby.UI
         {
             if (!_state.ShowDebugUI) return;
 
-            // Auto-refresh logic - only when browser is visible and in browser state
+            // Auto-refresh logic - only when browser is visible, in browser state, and NOT in a lobby
             if (_autoRefreshEnabled && 
                 _state.ViewState == LobbyUIState.Browser &&
+                _state.CurrentLobby == null &&
                 Time.time - _lastRefreshTime >= AUTO_REFRESH_INTERVAL)
             {
                 _controller.RefreshLobbyList();
@@ -75,7 +76,7 @@ namespace SiroccoLobby.UI
                 
                 // Auto-refresh toggle button
                 string autoRefreshLabel = _autoRefreshEnabled ? "Auto: ON" : "Auto: OFF";
-                GUIStyle autoRefreshStyle = _autoRefreshEnabled ? LobbyStyles.ButtonStyle : LobbyStyles.ButtonDisabled;
+                GUIStyle autoRefreshStyle = _autoRefreshEnabled ? LobbyStyles.ButtonStyle : (LobbyStyles.ButtonDisabled ?? LobbyStyles.ButtonStyle);
                 if (GUILayout.Button(autoRefreshLabel, autoRefreshStyle, GUILayout.Width(100), GUILayout.Height(35)))
                 {
                     _autoRefreshEnabled = !_autoRefreshEnabled;
