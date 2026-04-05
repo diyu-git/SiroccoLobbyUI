@@ -47,22 +47,16 @@ namespace SiroccoLobby
         private const int PROTO_INIT_FRAME_DELAY = 8; // wait 8 frames between attempts
 
         private bool _isSteamInitialized = false;
-            
-        // CONFIG: Production Version (No Patching)
-        // Set to true only if you need low-level IL2CPP tracing
-        // Make this non-const to avoid compile-time unreachable-code warnings when false.
-        private static readonly bool ENABLE_TRACING = false;
 
         public override void OnInitializeMelon()
         {
             MelonLogger.Msg("Sirocco Lobby UI initializing (Built on SLL)...");
             
-            // Apply Harmony patches (Tracing only)
-            if (ENABLE_TRACING)
-            {
-                HarmonyPatches.Apply(HarmonyInstance);
-                MelonLogger.Msg("Tracing patches enabled (debug mode).");
-            }
+            // Apply chat fix patches for P2P mode (always active)
+            ChatPatches.Apply(HarmonyInstance);
+
+            // Apply chat fix patches for P2P mode (always active)
+            ChatPatches.Apply(HarmonyInstance);
             
             // Initialize services
             _reflectionBridge = new SteamReflectionBridge(LoggerInstance);
