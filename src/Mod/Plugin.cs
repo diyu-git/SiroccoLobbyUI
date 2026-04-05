@@ -51,9 +51,9 @@ namespace SiroccoLobby
         public override void OnInitializeMelon()
         {
             MelonLogger.Msg("Sirocco Lobby UI initializing (Built on SLL)...");
-            
-            // Apply chat fix patches for P2P mode (always active)
-            ChatPatches.Apply(HarmonyInstance);
+
+            // Block F1 server start during active matches
+            ServerStartGuard.Install();
 
             // Apply chat fix patches for P2P mode (always active)
             ChatPatches.Apply(HarmonyInstance);
