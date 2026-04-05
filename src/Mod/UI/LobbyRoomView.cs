@@ -154,6 +154,18 @@ namespace SiroccoLobby.UI
                     GUILayout.Space(8);
                 }
 
+                // Bot AI toggle (Host Only)
+                if (_state.IsHost)
+                {
+                    bool botsDisabled = DummyBotPatches.Enabled;
+                    bool newValue = GUILayout.Toggle(botsDisabled, botsDisabled ? "Bots: Disabled" : "Bots: Enabled");
+                    if (newValue != botsDisabled)
+                    {
+                        DummyBotPatches.Enabled = newValue;
+                    }
+                    GUILayout.Space(8);
+                }
+
                 string capDisplay = (_state.IsProtoLobbyReady && _protoLobby.IsReady)
                     ? _protoLobby.GetCaptainName(_state.SelectedCaptainIndex)
                     : $"Captain {_state.SelectedCaptainIndex + 1}";

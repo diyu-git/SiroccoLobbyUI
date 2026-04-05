@@ -46,6 +46,8 @@ namespace SiroccoLobby
         private const int MAX_PROTO_INIT_ATTEMPTS = 8; // try several times across frames
         private const int PROTO_INIT_FRAME_DELAY = 8; // wait 8 frames between attempts
 
+        private bool _dummyBrainsDisabled = false;
+
         private bool _isSteamInitialized = false;
         private bool _isInPlayableScene = false;
         private bool _wasServerActive = false;
@@ -54,6 +56,9 @@ namespace SiroccoLobby
         public override void OnInitializeMelon()
         {
             MelonLogger.Msg("Sirocco Lobby UI initializing (Built on SLL)...");
+            
+            // Apply dummy bot disable patches (always active)
+            DummyBotPatches.Apply(HarmonyInstance);
 
             // Block F1 server start during active matches
             ServerStartGuard.Install();
@@ -88,7 +93,7 @@ namespace SiroccoLobby
 
             // Create controller (controller depends on the library interface and the wrapper)
             _controller = new LobbyController(_state, libAdapter, _protoLobby, LoggerInstance, _serviceWrapper);
-            _controller.OnLobbyEnded += () => { _wasServerActive = false; _wasClientConnected = false; };
+            _controller.OnLobbyEnded += () => { _wasServerActive = false; _wasClientConnected = false; _dummyBrainsDisabled = false; DummyBotPatches.Enabled = false; };
 
             // Create CaptainSelectionController but defer initialization until the game is ready
             // (Assembly-CSharp / GameAuthority may not be available at Melon init time).
@@ -147,6 +152,14 @@ namespace SiroccoLobby
                     _state!.ViewState = Model.LobbyUIState.Room;
                 }
                 _wasClientConnected = isClientConnected;
+            }
+
+            // Lock in bot toggle state when game starts (don't override user's lobby choice)
+            if (_state?.GameHasStarted == true && !_dummyBrainsDisabled)
+            {
+                _dummyBrainsDisabled = true;
+                // DummyBotPatches.Enabled is already set by the lobby UI toggle
+                // (defaults to false/bots enabled, user can check to disable)
             }
 
             // F5 toggle
@@ -284,9 +297,11 @@ namespace SiroccoLobby
                 _showUI = false;
                 _wasServerActive = false;
                 _wasClientConnected = false;
+                _dummyBrainsDisabled = false;
                 _protoInitialized = false;
                 _protoInitAttempts = 0;
                 _protoLobby?.Reset();
+                DummyBotPatches.Enabled = false;
                 if (_state != null)
                 {
                     _state.GameHasStarted = false;
