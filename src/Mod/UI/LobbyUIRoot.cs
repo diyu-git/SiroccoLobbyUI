@@ -22,6 +22,7 @@ namespace SiroccoLobby.UI
         public void Draw()
         {
             LobbyStyles.Init();
+            if (!LobbyStyles.IsInitialized) return;
 
             // Dynamic Window Sizing (Percentage of Screen)
             float windowWidth = Mathf.Clamp(Screen.width * 0.65f, 1050, 1400); 
