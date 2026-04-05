@@ -46,12 +46,11 @@ namespace SiroccoLobby
         private const int MAX_PROTO_INIT_ATTEMPTS = 8; // try several times across frames
         private const int PROTO_INIT_FRAME_DELAY = 8; // wait 8 frames between attempts
 
-        private bool _dummyBrainsDisabled = false;
-
         private bool _isSteamInitialized = false;
         private bool _isInPlayableScene = false;
         private bool _wasServerActive = false;
         private bool _wasClientConnected = false;
+        private bool _dummyBrainsDisabled = false;
 
         public override void OnInitializeMelon()
         {
