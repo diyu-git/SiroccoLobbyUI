@@ -60,8 +60,8 @@ namespace SiroccoLobby.UI
             try 
             {
                 // Shared header with player count and leave lobby cleanup
-                int currentP = _state.CurrentLobby != null ? _state.CurrentLobbyMemberCount : 0;
-                int maxP = _state.CurrentLobby != null ? _state.CurrentLobbyMaxPlayers : 0;
+                int currentP = _state.Members.Count;
+                int maxP = _state.CurrentLobby != null ? _state.CurrentLobbyMaxPlayers : 10;
                 SharedUIComponents.DrawHeader(
                     _state, 
                     _log,
@@ -153,9 +153,9 @@ namespace SiroccoLobby.UI
                     
                     GUILayout.Space(8);
                 }
-                
-                string capDisplay = (_state.IsProtoLobbyReady && _protoLobby.IsReady) 
-                    ? _protoLobby.GetCaptainName(_state.SelectedCaptainIndex) 
+
+                string capDisplay = (_state.IsProtoLobbyReady && _protoLobby.IsReady)
+                    ? _protoLobby.GetCaptainName(_state.SelectedCaptainIndex)
                     : $"Captain {_state.SelectedCaptainIndex + 1}";
 
                 if (GUILayout.Button($"CAPTAIN: {capDisplay.Split(' ').Last()}", LobbyStyles.ButtonStyle, GUILayout.Height(35))) // Compact name
@@ -516,10 +516,12 @@ namespace SiroccoLobby.UI
             // Filter members
             var team1Members = new System.Collections.Generic.List<LobbyMember>();
             var team2Members = new System.Collections.Generic.List<LobbyMember>();
+            var unassignedMembers = new System.Collections.Generic.List<LobbyMember>();
             foreach(var m in _state.Members)
             {
                 if (m.Team == 1) team1Members.Add(m);
                 else if (m.Team == 2) team2Members.Add(m);
+                else unassignedMembers.Add(m);
             }
 
             // TEAM A
@@ -557,25 +559,42 @@ namespace SiroccoLobby.UI
                 DrawPlayerSlot(i + 5, 2, member);
             }
             GUILayout.EndVertical();
-            
+
             GUILayout.Space(15);
-            
+
             // Lobby Feed (right side)
             if (_state.CaptainModeEnabled && _state.LobbyFeed.Count > 0)
             {
                 GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box, GUILayout.Width(200), GUILayout.ExpandHeight(false));
                 GUILayout.Label("ACTIVITY", LobbyStyles.HeaderStyle);
-                
+
                 foreach (var message in _state.LobbyFeed)
                 {
                     GUILayout.Label(message, LobbyStyles.SteamIdStyle);
                 }
-                
+
                 GUILayout.EndVertical();
             }
-            
+
             GUILayout.FlexibleSpace(); // Center the rosters
             GUILayout.EndHorizontal();
+
+            // Unassigned players (P2P connections without a team) — below teams
+            if (unassignedMembers.Count > 0)
+            {
+                GUILayout.Space(8);
+                GUILayout.BeginHorizontal();
+                GUILayout.FlexibleSpace();
+                GUILayout.BeginVertical(LobbyStyles.BoxStyle ?? GUI.skin.box, GUILayout.Width(815));
+                GUILayout.Label("CONNECTED PLAYERS", LobbyStyles.HeaderStyle);
+                foreach (var member in unassignedMembers)
+                {
+                    DrawPlayerSlot(0, 0, member);
+                }
+                GUILayout.EndVertical();
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+            }
 
             GUI.enabled = originalEnabled;
         }
@@ -592,7 +611,11 @@ namespace SiroccoLobby.UI
             {
                 // Get Captain Name from ProtoLobby if available
                 string capName = "None";
-                if (_state.IsProtoLobbyReady && _protoLobby.IsReady && member.CaptainIndex >= 0)
+                if (!string.IsNullOrEmpty(member.CaptainLabel))
+                {
+                    capName = member.CaptainLabel;
+                }
+                else if (_state.IsProtoLobbyReady && _protoLobby.IsReady && member.CaptainIndex >= 0)
                 {
                     capName = _protoLobby.GetCaptainName(member.CaptainIndex);
                 }
@@ -610,6 +633,7 @@ namespace SiroccoLobby.UI
                 if (isCaptain) displayName = "[C] " + displayName;
                 
                 if (member.IsHost) displayName += " (Host)";
+                if (member.IsP2POnly) displayName += " (P2P)";
                 if (member.SteamId != null && _controller.IsLocalSteamId(member.SteamId)) displayName += " (You)";
                 
                 // Truncate long names to fit fixed widths

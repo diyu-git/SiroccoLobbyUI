@@ -77,6 +77,7 @@ namespace SiroccoLobby.Services
         public void SetSelectedCaptain(int index) => Selection.SetSelectedCaptain(index);
         public int GetSelectedCaptainIndex() => Selection.GetSelectedCaptainIndex();
         public string GetCaptainName(int index) => Selection.GetCaptainName(index);
+        public string GetCaptainNameByTypeId(int typeIdValue) => Selection.GetCaptainNameByTypeId(typeIdValue);
         public void SetUserName(string name) => Selection.SetUserName(name);
         public void SetSelectedTeam(int team) => Selection.SetSelectedTeam(team);
         public int GetSelectedTeamIndex() => Selection.GetSelectedTeamIndex();
@@ -98,6 +99,8 @@ namespace SiroccoLobby.Services
         public void CallNetworkClientReady(int captainIndex, int teamIndex) => Network.CallNetworkClientReady(captainIndex, teamIndex);
         public bool ValidatePlayersReadyForGameStart() => Network.ValidatePlayersReadyForGameStart();
         public void ConnectToGameServer(string? address = null) => Network.ConnectToGameServer(address);
+        public System.Collections.Generic.List<(ulong SteamId, string Name)> GetP2PConnectedPlayers() => Network.GetP2PConnectedPlayers();
+        public System.Collections.Generic.List<(string Name, bool IsTeamA, bool IsReady, bool IsConnected, string CaptainId)> GetGamePlayerStatus() => Network.GetGamePlayerStatus();
 
         // Completion
         public void CompleteProtoLobbyClient() => Completion.CompleteProtoLobbyClient();

@@ -47,7 +47,10 @@ namespace SiroccoLobby
         private const int PROTO_INIT_FRAME_DELAY = 8; // wait 8 frames between attempts
 
         private bool _isSteamInitialized = false;
-            
+        private bool _isInPlayableScene = false;
+        private bool _wasServerActive = false;
+        private bool _wasClientConnected = false;
+
         // CONFIG: Production Version (No Patching)
         // Set to true only if you need low-level IL2CPP tracing
         // Make this non-const to avoid compile-time unreachable-code warnings when false.
@@ -91,6 +94,7 @@ namespace SiroccoLobby
 
             // Create controller (controller depends on the library interface and the wrapper)
             _controller = new LobbyController(_state, libAdapter, _protoLobby, LoggerInstance, _serviceWrapper);
+            _controller.OnLobbyEnded += () => { _wasServerActive = false; _wasClientConnected = false; };
 
             // Create CaptainSelectionController but defer initialization until the game is ready
             // (Assembly-CSharp / GameAuthority may not be available at Melon init time).
@@ -127,9 +131,36 @@ namespace SiroccoLobby
             // Let the controller process any pending lobby summary updates (debounced)
             _controller?.ProcessPendingBatch();
             
+            // Detect native P2P server start and auto-create Steam lobby
+            if (_isSteamInitialized && _isInPlayableScene && _protoInitialized && _protoLobby != null)
+            {
+                bool isServerActive = _protoLobby.Network.IsServerActive;
+                if (isServerActive && !_wasServerActive)
+                {
+                    MelonLogger.Msg("[ServerDetect] P2P server started - creating Steam lobby for discovery...");
+                    _steamManager?.CreateLobby(10);
+                    _state!.IsSearchingForHostedLobby = true;
+                    _state.IsHost = true;
+                    _state.ViewState = Model.LobbyUIState.Room;
+                }
+                _wasServerActive = isServerActive;
+
+                // Detect client connecting to an unmodded host (no Steam lobby)
+                bool isClientConnected = _protoLobby.Network.IsClientConnected;
+                if (isClientConnected && !_wasClientConnected && _state?.CurrentLobby == null)
+                {
+                    MelonLogger.Msg("[ClientDetect] Connected to game server as client - switching to Room view");
+                    _state!.ViewState = Model.LobbyUIState.Room;
+                }
+                _wasClientConnected = isClientConnected;
+            }
+
             // F5 toggle
             if (Input.GetKeyDown(KeyCode.F5))
             {
+                if (!_isInPlayableScene)
+                    return;
+
                 // Don't allow reopening UI after game has started
                 if (_state?.GameHasStarted == true)
                 {
@@ -235,6 +266,15 @@ namespace SiroccoLobby
                         _steamManager?.RequestLobbyList(); 
                     }
                 }
+            }
+        }
+
+        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        {
+            MelonLogger.Msg($"[Scene] Loaded: '{sceneName}' (index {buildIndex})");
+            if (sceneName == "GlobalPlayableShipsObjectPool")
+            {
+                _isInPlayableScene = true;
             }
         }
 

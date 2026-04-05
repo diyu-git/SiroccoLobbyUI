@@ -28,6 +28,7 @@ namespace SiroccoLobby.Services.Core
     public object? NetworkManagerInstance { get; private set; }
     public MethodInfo? StartSinglePlayerP2PMethod { get; private set; }
     public MethodInfo? StartSinglePlayerMethod { get; private set; }
+    public MethodInfo? GetSteamP2PTransportMethod { get; private set; }
     public MethodInfo? StartClientMethod { get; private set; }
     public MethodInfo? StartClientWithUriMethod { get; private set; }
     public MethodInfo? FinishStartHostMethod { get; private set; }
@@ -129,6 +130,7 @@ namespace SiroccoLobby.Services.Core
 
             StartSinglePlayerP2PMethod = managerType.GetMethod("StartSinglePlayerWithSteamP2P", BindingFlags.Public | BindingFlags.Instance);
             StartSinglePlayerMethod = managerType.GetMethod("StartSinglePlayer", BindingFlags.Public | BindingFlags.Instance);
+            GetSteamP2PTransportMethod = managerType.GetMethod("GetSteamP2PTransport", BindingFlags.Public | BindingFlags.Instance);
             
             // Try to find StartClient methods - both parameterless and with Uri parameter
             StartClientMethod = managerType.GetMethod("StartClient", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
@@ -356,7 +358,7 @@ namespace SiroccoLobby.Services.Core
             }
         }
 
-        private static object? TryFindUnityObjectInstance(Type unityObjectType)
+        internal static object? TryFindUnityObjectInstance(Type unityObjectType)
         {
             try
             {
