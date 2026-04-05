@@ -60,6 +60,38 @@ namespace SiroccoLobby.Services
 
         public bool IsClientConnected => _networkClientActiveProp != null && (bool)(_networkClientActiveProp.GetValue(null) ?? false);
 
+        /// <summary>
+        /// Disables AI brains on dummy players by setting
+        /// SimulationManager._isUsingDummyPlayersWithBrains = false.
+        /// Gets SimulationManager via GameAuthority.GetSimulationManager().
+        /// </summary>
+        public bool DisableDummyBrains()
+        {
+            try
+            {
+                var gaInstance = _reflection.GameAuthorityInstance;
+                var gaType = _reflection.GameAuthorityType;
+                if (gaInstance == null || gaType == null) return false;
+
+                var getSimMethod = gaType.GetMethod("GetSimulationManager", BindingFlags.Public | BindingFlags.Instance);
+                if (getSimMethod == null) return false;
+
+                var simInstance = getSimMethod.Invoke(gaInstance, null);
+                if (simInstance == null) return false;
+
+                var prop = simInstance.GetType().GetProperty("_isUsingDummyPlayersWithBrains", BindingFlags.Public | BindingFlags.Instance);
+                if (prop == null) return false;
+
+                prop.SetValue(simInstance, false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Warning($"[NetworkIntegration] DisableDummyBrains failed: {ex.Message}");
+                return false;
+            }
+        }
+
         public bool IsServerActive => _networkServerActiveProp != null && (bool)(_networkServerActiveProp.GetValue(null) ?? false);
 
         public void ConnectToGameServer(string? address = null)

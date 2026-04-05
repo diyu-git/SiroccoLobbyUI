@@ -98,6 +98,7 @@ namespace SiroccoLobby.Services
         public void CallNetworkClientReady(int captainIndex, int teamIndex) => Network.CallNetworkClientReady(captainIndex, teamIndex);
         public bool ValidatePlayersReadyForGameStart() => Network.ValidatePlayersReadyForGameStart();
         public void ConnectToGameServer(string? address = null) => Network.ConnectToGameServer(address);
+        public bool DisableDummyBrains() => Network.DisableDummyBrains();
 
         // Completion
         public void CompleteProtoLobbyClient() => Completion.CompleteProtoLobbyClient();

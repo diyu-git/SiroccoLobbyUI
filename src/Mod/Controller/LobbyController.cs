@@ -206,6 +206,15 @@ namespace SiroccoLobby.Controller
             // Current counts
             _state.CurrentLobbyMemberCount = _steam.GetMemberCount(lobbyId);
             _state.CurrentLobbyMaxPlayers = _steam.GetMemberLimit(lobbyId);
+
+            // Sync bot toggle state from host (clients read, host writes in SetBotsDisabled)
+            if (!_state.IsHost)
+            {
+                var botsDisabled = _steam.GetLobbyData(lobbyId, "bots_disabled");
+                bool disabled = botsDisabled == "1";
+                _state.BotsDisabled = disabled;
+                DummyBotPatches.Enabled = disabled;
+            }
         }
 
         // Build a UI-friendly cache of lobby summaries so Views don't call Steam directly
@@ -1047,6 +1056,18 @@ namespace SiroccoLobby.Controller
             // - Cleanup will happen naturally when returning to main menu
             
             _log.Msg("[Host] Game started - UI hidden");
+        }
+
+        public void SetBotsDisabled(bool disabled)
+        {
+            _state.BotsDisabled = disabled;
+            DummyBotPatches.Enabled = disabled;
+
+            // Sync to Steam lobby metadata so other modded clients see the toggle
+            if (_state.IsHost && _state.CurrentLobby != null)
+            {
+                _steam.SetLobbyData(_state.CurrentLobby, "bots_disabled", disabled ? "1" : "0");
+            }
         }
     }
 }

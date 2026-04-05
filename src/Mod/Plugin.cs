@@ -56,7 +56,10 @@ namespace SiroccoLobby
         public override void OnInitializeMelon()
         {
             MelonLogger.Msg("Sirocco Lobby UI initializing (Built on SLL)...");
-            
+
+            // Apply dummy bot disable patches (always active)
+            DummyBotPatches.Apply(HarmonyInstance);
+
             // Apply Harmony patches (Tracing only)
             if (ENABLE_TRACING)
             {
