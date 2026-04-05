@@ -32,7 +32,6 @@ namespace SiroccoLobby.Services
             }
             try
             {
-                InspectGameAuthorityFields(_reflection.GameAuthorityInstance);
                 MelonLoader.MelonLogger.Msg("[LobbyCompletionService] Invoking GameAuthority.CompleteProtoLobbyServer...");
                 _reflection.CompleteProtoLobbyMethod.Invoke(_reflection.GameAuthorityInstance, null);
                 MelonLoader.MelonLogger.Msg("[LobbyCompletionService] ProtoLobby server completion succeeded");
@@ -68,13 +67,6 @@ namespace SiroccoLobby.Services
             {
                 LogReflectionException(nameof(CompleteProtoLobbyClient), ex);
             }
-        }
-
-        // Helper for diagnostics (optional, can be expanded)
-        private void InspectGameAuthorityFields(object? gameAuthority)
-        {
-            // Optionally inspect fields for debugging, as in original logic
-            // ...
         }
 
         private void LogReflectionException(string context, Exception ex)

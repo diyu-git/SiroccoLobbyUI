@@ -25,8 +25,8 @@ namespace SiroccoLobby.UI
             if (!LobbyStyles.IsInitialized) return;
 
             // Dynamic Window Sizing (Percentage of Screen)
-            float windowWidth = Mathf.Clamp(Screen.width * 0.65f, 1050, 1400); 
-            float windowHeight = Mathf.Clamp(Screen.height * 0.65f, 600, 800); // Further reduced as requested
+            float windowWidth = Mathf.Clamp(Screen.width * 0.65f, 1050, 1400);
+            float windowHeight = Mathf.Clamp(Screen.height * 0.75f, 700, 950);
             
             float x = (Screen.width - windowWidth) / 2;
             float y = (Screen.height - windowHeight) / 2;

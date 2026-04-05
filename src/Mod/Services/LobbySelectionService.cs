@@ -147,6 +147,67 @@ namespace SiroccoLobby.Services
         }
 
 
+        private Dictionary<int, string>? _typeIdToNameCache;
+
+        /// <summary>
+        /// Looks up a captain name by its TypeID value (int).
+        /// Builds a cache on first call by iterating the captains dropdown list.
+        /// </summary>
+        public string GetCaptainNameByTypeId(int typeIdValue)
+        {
+            if (_typeIdToNameCache == null)
+            {
+                _typeIdToNameCache = new Dictionary<int, string>();
+                var list = GetCaptainsList();
+                if (list != null)
+                {
+                    try
+                    {
+                        var countProp = list.GetType().GetProperty("Count");
+                        int count = (int)(countProp?.GetValue(list) ?? 0);
+                        var itemProp = list.GetType().GetProperty("Item");
+
+                        for (int i = 0; i < count; i++)
+                        {
+                            var captain = itemProp?.GetValue(list, new object[] { i });
+                            if (captain == null) continue;
+
+                            // Read captainTypeID.Value
+                            var typeIdProp = captain.GetType().GetProperty("captainTypeID", BindingFlags.Public | BindingFlags.Instance);
+                            if (typeIdProp == null) continue;
+                            var typeId = typeIdProp.GetValue(captain);
+                            if (typeId == null) continue;
+
+                            int value = 0;
+                            var valField = typeId.GetType().GetField("Value", BindingFlags.Public | BindingFlags.Instance);
+                            if (valField != null)
+                                value = (int)(valField.GetValue(typeId) ?? 0);
+                            else
+                            {
+                                var valProp = typeId.GetType().GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+                                if (valProp != null)
+                                    value = (int)(valProp.GetValue(typeId) ?? 0);
+                            }
+
+                            string name = GetCaptainName(i);
+                            if (!string.IsNullOrEmpty(name) && !name.StartsWith("Captain "))
+                                _typeIdToNameCache[value] = name;
+                            else
+                                _typeIdToNameCache[value] = $"Captain {i + 1}";
+                        }
+
+                        // Cache built silently
+                    }
+                    catch (Exception ex)
+                    {
+                        MelonLoader.MelonLogger.Warning($"[LobbySelectionService] Failed to build TypeID cache: {ex.Message}");
+                    }
+                }
+            }
+
+            return _typeIdToNameCache.TryGetValue(typeIdValue, out var captainName) ? captainName : $"TypeID:{typeIdValue}";
+        }
+
         public event Action<int>? OnSelectedCaptainChanged;
         public event Action<int>? OnSelectedTeamChanged;
         public event Action<string>? OnUserNameChanged;
@@ -173,7 +234,7 @@ namespace SiroccoLobby.Services
             {
                 int gameTeamIndex = teamIndex - TeamUiOffset;
                 if (gameTeamIndex < 0) gameTeamIndex = 0;
-                _reflection.TeamSelectionIndexProp?.SetValue(_reflection.GameAuthorityInstance, gameTeamIndex);
+                _reflection.TeamSelectionIndexProp?.SetValue(null, gameTeamIndex);
                 OnSelectedTeamChanged?.Invoke(teamIndex);
             }
             catch (Exception ex)
@@ -199,7 +260,7 @@ namespace SiroccoLobby.Services
         {
             try
             {
-                return (int)(_reflection.TeamSelectionIndexProp?.GetValue(_reflection.GameAuthorityInstance) ?? -1);
+                return (int)(_reflection.TeamSelectionIndexProp?.GetValue(null) ?? -1);
             }
             catch (Exception ex)
             {

@@ -5,6 +5,7 @@ using UnityEngine;
 using SteamLobbyLib;
 namespace SiroccoLobby.Controller
 {
+    using System;
     using System.Linq;
     using Il2CppInterop.Runtime;
     using Il2CppInterop.Runtime.InteropTypes;
@@ -26,6 +27,8 @@ namespace SiroccoLobby.Controller
     private bool _loggedEndLobbyQuitException;
     private bool _hasAttemptedConnection; // Track if we've connected to Mirror/Steam P2P
     private bool _loggedLobbyDataUpdate; // Track if we've logged at least one lobby data update
+    private float _lastP2PRefreshTime;
+    private const float P2P_REFRESH_INTERVAL = 3.0f;
 
         public LobbyController(
             LobbyState state,
@@ -72,11 +75,15 @@ namespace SiroccoLobby.Controller
              _log.Msg("Lobby refresh requested.");
         }
 
+        public event Action? OnLobbyEnded;
+
         public void CreateLobby()
         {
             if (_state.ShowDebugUI) _log.Msg("Creating lobby...");
-            
-            // 1. Start the game server (Mirror + Steam P2P networking)
+
+            // Start the game server using the same path as the native P2P button.
+            // The native detection in Plugin.OnUpdate() will automatically create
+            // a Steam matchmaking lobby when it detects the server becoming active.
             if (_protoLobby != null && _protoLobby.IsReady)
             {
                 _protoLobby.TriggerSinglePlayer();
@@ -86,12 +93,10 @@ namespace SiroccoLobby.Controller
             {
                 _log.Error("[Host] ProtoLobby not ready! Cannot start game server.");
             }
-            
-            // 2. Create Steam lobby for matchmaking/discovery
-            _steam.CreateLobby(2, 10);
 
+            _state.IsHost = true;
             _state.IsSearchingForHostedLobby = true;
-            if (_state.ShowDebugUI) _log.Msg("Waiting for Lobby Creation...");
+            if (_state.ShowDebugUI) _log.Msg("Waiting for server to start...");
         }
 
         public void JoinLobby(object lobbyId, string hostSteamId = "")
@@ -317,11 +322,159 @@ namespace SiroccoLobby.Controller
         }
 
         // Refresh member list using the mod wrapper (maps DTO -> mod model)
+        // Merges Steam lobby members with P2P-connected players
+
         public void RefreshMembers(object lobbyId)
         {
             if (_wrapper == null) return;
-            var members = _wrapper.GetLobbyMembersModel(lobbyId) ?? System.Linq.Enumerable.Empty<LobbyMember>();
-            _state.UpdateMembers(members.ToList());
+            var members = (_wrapper.GetLobbyMembersModel(lobbyId) ?? Enumerable.Empty<LobbyMember>()).ToList();
+
+            int lobbyMemberCount = members.Count;
+            int gamePlayerCount = 0;
+            int p2pPlayerCount = 0;
+
+            // Also get game player status and merge in non-lobby players
+            if (_protoLobby != null)
+            {
+                var gamePlayers = _protoLobby.GetGamePlayerStatus();
+                gamePlayerCount = gamePlayers.Count;
+
+                var existingNames = new System.Collections.Generic.HashSet<string>();
+                foreach (var m in members)
+                {
+                    if (m.Name != null) existingNames.Add(m.Name);
+                }
+
+                foreach (var (name, isTeamA, isReady, isConnected, captainId) in gamePlayers)
+                {
+                    if (!existingNames.Contains(name))
+                    {
+                        members.Add(new LobbyMember
+                        {
+                            Name = name,
+                            Team = isReady ? (isTeamA ? 1 : 2) : 0,
+                            IsReady = isReady,
+                            IsP2POnly = true,
+                            CaptainLabel = int.TryParse(captainId, out var typeIdVal) && _protoLobby != null
+                                ? _protoLobby.GetCaptainNameByTypeId(typeIdVal)
+                                : captainId
+                        });
+                    }
+                }
+
+                // Also merge P2P connections (picks up players who haven't clicked Ready)
+                // Only add P2P entries that aren't already represented by game player data.
+                // Game players are tracked by name; P2P by Steam ID. Since we can't reliably
+                // match them, only add P2P entries when game player count is lower than P2P count
+                // (meaning some P2P players haven't clicked Ready yet).
+                var p2pPlayers = _protoLobby!.GetP2PConnectedPlayers();
+                p2pPlayerCount = p2pPlayers.Count;
+                int nonLobbyGamePlayers = gamePlayerCount; // Players from game authority not in Steam lobby
+                foreach (var (steamId, name) in p2pPlayers)
+                {
+                    // If game data already accounts for this connection, skip it
+                    if (nonLobbyGamePlayers > 0)
+                    {
+                        nonLobbyGamePlayers--;
+                        continue;
+                    }
+
+                    var steamIdStr = steamId.ToString();
+                    bool alreadyExists = false;
+                    foreach (var m in members)
+                    {
+                        if (m.SteamId?.ToString() == steamIdStr) { alreadyExists = true; break; }
+                    }
+                    if (!alreadyExists)
+                    {
+                        members.Add(new LobbyMember
+                        {
+                            SteamId = steamId,
+                            Name = name,
+                            IsP2POnly = true
+                        });
+                    }
+                }
+            }
+
+            _state.UpdateMembers(members);
+        }
+
+        /// <summary>
+        /// Populates the member list from the game's SteamP2PNetworkTester status.
+        /// Reads player name, team, ready state, and connection status directly
+        /// from the game's own tracking, so non-modded players appear correctly.
+        /// </summary>
+
+        private void RefreshP2POnlyMembers()
+        {
+            if (_protoLobby == null) return;
+            var members = new System.Collections.Generic.List<LobbyMember>();
+            var knownNames = new System.Collections.Generic.HashSet<string>();
+
+            // Get rich game player data (players who have clicked Ready)
+            var gamePlayers = _protoLobby.GetGamePlayerStatus();
+            foreach (var (name, isTeamA, isReady, isConnected, captainId) in gamePlayers)
+            {
+                members.Add(new LobbyMember
+                {
+                    Name = name,
+                    Team = isReady ? (isTeamA ? 1 : 2) : 0,
+                    IsReady = isReady,
+                    IsP2POnly = true,
+                    CaptainLabel = int.TryParse(captainId, out var typeIdVal) && _protoLobby != null
+                        ? _protoLobby.GetCaptainNameByTypeId(typeIdVal)
+                        : captainId
+                });
+                if (!string.IsNullOrEmpty(name)) knownNames.Add(name);
+            }
+
+            // Also get raw P2P connections to find players who haven't clicked Ready yet
+            var p2pPlayers = _protoLobby!.GetP2PConnectedPlayers();
+            int gamePlayersAccountedFor = gamePlayers.Count;
+            foreach (var (steamId, name) in p2pPlayers)
+            {
+                // If game data already accounts for this connection, skip it
+                if (gamePlayersAccountedFor > 0)
+                {
+                    gamePlayersAccountedFor--;
+                    continue;
+                }
+                members.Add(new LobbyMember
+                {
+                    SteamId = steamId,
+                    Name = name,
+                    IsP2POnly = true
+                });
+            }
+
+            // Add self if not already in the list, with current local state
+            try
+            {
+                var localName = _steam.GetLocalPersonaName();
+                if (!knownNames.Contains(localName))
+                {
+                    var localId = _steam.GetLocalSteamId();
+                    string? captainLabel = null;
+                    if (_protoLobby != null && _protoLobby.IsReady && _state.SelectedCaptainIndex >= 0)
+                    {
+                        captainLabel = _protoLobby.GetCaptainName(_state.SelectedCaptainIndex);
+                    }
+                    members.Add(new LobbyMember
+                    {
+                        SteamId = localId,
+                        Name = localName,
+                        IsHost = _state.IsHost,
+                        Team = _state.SelectedTeam,
+                        IsReady = _state.IsLocalReady,
+                        CaptainIndex = _state.SelectedCaptainIndex,
+                        CaptainLabel = captainLabel
+                    });
+                }
+            }
+            catch { }
+
+            _state.UpdateMembers(members);
         }
 
         // ILobbyEvents implementation (receive callbacks from the library)
@@ -522,6 +675,7 @@ namespace SiroccoLobby.Controller
         {
             if (_state.ShowDebugUI) _log.Msg("Clearing local lobby state");
             _state.ClearLobby();
+            OnLobbyEnded?.Invoke();
         }
 
         // High-level API encoding intent instead of mechanics
@@ -1014,6 +1168,28 @@ namespace SiroccoLobby.Controller
             else if (_state.ViewState == LobbyUIState.Room)
             {
                 // Room Logic handled by LobbyUIRoot
+            }
+
+            // Periodic P2P player refresh (picks up non-mod players)
+            if (_protoLobby != null &&
+                UnityEngine.Time.time - _lastP2PRefreshTime >= P2P_REFRESH_INTERVAL)
+            {
+                _lastP2PRefreshTime = UnityEngine.Time.time;
+                bool serverActive = false;
+                try { serverActive = _protoLobby.Network.IsServerActive; } catch { }
+
+                bool clientConnected = false;
+                try { clientConnected = _protoLobby.Network.IsClientConnected; } catch { }
+
+                if (_state.CurrentLobby != null)
+                {
+                    RefreshMembers(_state.CurrentLobby);
+                }
+                else if (serverActive || clientConnected)
+                {
+                    // Server hosting or client connected to unmodded host — show game player data
+                    RefreshP2POnlyMembers();
+                }
             }
         }
         public void StartGame()

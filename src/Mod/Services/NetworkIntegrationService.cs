@@ -62,6 +62,168 @@ namespace SiroccoLobby.Services
 
         public bool IsServerActive => _networkServerActiveProp != null && (bool)(_networkServerActiveProp.GetValue(null) ?? false);
 
+        /// <summary>
+        /// Gets player info from GameAuthority.GetPlayerConnectionMappings().
+        /// Returns DisplayName, IsTeamA, and CaptainTypeID.Value for each registered player.
+        /// </summary>
+        public List<(string Name, bool IsTeamA, bool IsReady, bool IsConnected, string CaptainId)> GetGamePlayerStatus()
+        {
+            var result = new List<(string, bool, bool, bool, string)>();
+            try
+            {
+                var gaInstance = _reflection.GameAuthorityInstance;
+                var gaType = _reflection.GameAuthorityType;
+                if (gaInstance == null || gaType == null) return result;
+
+                var getMappingsMethod = gaType.GetMethod("GetPlayerConnectionMappings", BindingFlags.Public | BindingFlags.Instance);
+                if (getMappingsMethod == null) return result;
+
+                var mappings = getMappingsMethod.Invoke(gaInstance, null);
+                if (mappings == null) return result;
+
+                int length = IL2CppArrayHelper.GetLen(mappings);
+                var itemProp = IL2CppArrayHelper.GetItemProperty(mappings);
+
+                for (int i = 0; i < length; i++)
+                {
+                    object? mapping = null;
+                    try { mapping = itemProp?.GetValue(mappings, new object[] { i }); }
+                    catch { continue; }
+                    if (mapping == null) continue;
+
+                    var displayNameProp = mapping.GetType().GetProperty("DisplayName", BindingFlags.Public | BindingFlags.Instance);
+                    var isTeamAProp = mapping.GetType().GetProperty("IsTeamA", BindingFlags.Public | BindingFlags.Instance);
+                    var captainTypeIDProp = mapping.GetType().GetProperty("CaptainTypeID", BindingFlags.Public | BindingFlags.Instance);
+
+                    string name = displayNameProp?.GetValue(mapping)?.ToString() ?? "";
+                    bool isTeamA = (bool)(isTeamAProp?.GetValue(mapping) ?? false);
+
+                    string captainId = "";
+                    if (captainTypeIDProp != null)
+                    {
+                        try
+                        {
+                            var typeId = captainTypeIDProp.GetValue(mapping);
+                            if (typeId != null)
+                            {
+                                var valueProp = typeId.GetType().GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+                                if (valueProp != null)
+                                    captainId = valueProp.GetValue(typeId)?.ToString() ?? "";
+                                else
+                                {
+                                    var valueField = typeId.GetType().GetField("Value", BindingFlags.Public | BindingFlags.Instance);
+                                    if (valueField != null)
+                                        captainId = valueField.GetValue(typeId)?.ToString() ?? "";
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (string.IsNullOrEmpty(name)) continue;
+                    result.Add((name, isTeamA, true, true, captainId));
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Warning($"[GameStatus] Error: {ex.Message}");
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Gets Steam IDs of players connected via Steam P2P transport.
+        /// On the server: reads GetAllConnections().
+        /// On the client: reads GetClientConnectionInfo() for the host connection.
+        /// </summary>
+        public List<(ulong SteamId, string Name)> GetP2PConnectedPlayers()
+        {
+            var result = new List<(ulong, string)>();
+            try
+            {
+                if (_reflection.GetSteamP2PTransportMethod == null || _reflection.NetworkManagerInstance == null)
+                    return result;
+
+                var transport = _reflection.GetSteamP2PTransportMethod.Invoke(_reflection.NetworkManagerInstance, null);
+                if (transport == null) return result;
+
+                // Server: iterate all connections
+                var getAllMethod = transport.GetType().GetMethod("GetAllConnections", BindingFlags.Public | BindingFlags.Instance);
+                if (getAllMethod != null)
+                {
+                    var connections = getAllMethod.Invoke(transport, null);
+                    if (connections != null)
+                    {
+                        var valuesProperty = connections.GetType().GetProperty("Values");
+                        var values = valuesProperty?.GetValue(connections);
+                        if (values != null)
+                        {
+                            var enumerator = values.GetType().GetMethod("GetEnumerator")?.Invoke(values, null);
+                            if (enumerator != null)
+                            {
+                                var moveNext = enumerator.GetType().GetMethod("MoveNext");
+                                var currentProp = enumerator.GetType().GetProperty("Current");
+                                if (moveNext != null && currentProp != null)
+                                {
+                                    while ((bool)(moveNext.Invoke(enumerator, null) ?? false))
+                                    {
+                                        var steamId = ExtractSteamIdFromConnection(currentProp.GetValue(enumerator));
+                                        if (steamId != 0) result.Add((steamId, ResolveSteamName(steamId)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Client: get server connection
+                if (result.Count == 0)
+                {
+                    var getClientConnMethod = transport.GetType().GetMethod("GetClientConnectionInfo", BindingFlags.Public | BindingFlags.Instance);
+                    if (getClientConnMethod != null)
+                    {
+                        var clientConn = getClientConnMethod.Invoke(transport, null);
+                        var steamId = ExtractSteamIdFromConnection(clientConn);
+                        if (steamId != 0) result.Add((steamId, ResolveSteamName(steamId)));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Warning($"[P2P] Error discovering connections: {ex.Message}");
+            }
+            return result;
+        }
+
+        private static ulong ExtractSteamIdFromConnection(object? connection)
+        {
+            if (connection == null) return 0;
+            try
+            {
+                var prop = connection.GetType().GetProperty("RemoteSteamId", BindingFlags.Public | BindingFlags.Instance);
+                if (prop == null) return 0;
+                var remoteSteamId = prop.GetValue(connection);
+                if (remoteSteamId == null) return 0;
+
+                var field = remoteSteamId.GetType().GetField("m_SteamID", BindingFlags.Public | BindingFlags.Instance);
+                if (field != null) return (ulong)(field.GetValue(remoteSteamId) ?? 0UL);
+                if (ulong.TryParse(remoteSteamId.ToString(), out var parsed)) return parsed;
+            }
+            catch { }
+            return 0;
+        }
+
+        private static string ResolveSteamName(ulong steamId)
+        {
+            try
+            {
+                var name = Steamworks.SteamFriends.GetFriendPersonaName(new Steamworks.CSteamID(steamId));
+                if (!string.IsNullOrEmpty(name)) return name;
+            }
+            catch { }
+            return steamId.ToString();
+        }
+
         public void ConnectToGameServer(string? address = null)
         {
             if (_reflection.NetworkClientType == null)
@@ -106,32 +268,22 @@ namespace SiroccoLobby.Services
 
         private bool TryIntegrateWithProtoLobby(string hostSteamId)
         {
-            MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] TryIntegrateWithProtoLobby - TesterInstance={(_reflection.TesterInstance != null ? "available" : "NULL")}, TesterType={(_reflection.TesterType != null ? "available" : "NULL")}, ConnectToSteamIDMethod={(_reflection.ConnectToSteamIDMethod != null ? "available" : "NULL")}");
-            
             // First, try the game's ConnectToSteamID method (from the in-game UI button)
             if (_reflection.TesterInstance != null)
             {
-                // Try to get the method if we don't have it yet
                 var connectMethod = _reflection.ConnectToSteamIDMethod;
                 if (connectMethod == null && _reflection.TesterType != null)
                 {
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Attempting to discover ConnectToSteamID method at runtime...");
-                    connectMethod = _reflection.TesterType.GetMethod("ConnectToSteamID", 
+                    connectMethod = _reflection.TesterType.GetMethod("ConnectToSteamID",
                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                    
-                    if (connectMethod != null)
-                    {
-                        MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ Found ConnectToSteamID method at runtime!");
-                    }
                 }
-                
+
                 if (connectMethod != null)
                 {
                     try
                     {
-                        MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Calling SteamP2PNetworkTester.ConnectToSteamID({hostSteamId})...");
                         InvokeSafe(connectMethod, _reflection.TesterInstance, hostSteamId);
-                        MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ ConnectToSteamID called successfully!");
+                        MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Connected via ConnectToSteamID({hostSteamId})");
                         return true;
                     }
                     catch (Exception ex)
@@ -141,9 +293,7 @@ namespace SiroccoLobby.Services
                 }
             }
             
-            // Fallback: Replicate exactly what ConnectToSteamID does
-            MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Replicating ConnectToSteamID logic manually...");
-            
+            // Fallback: Replicate ConnectToSteamID logic manually
             if (_reflection.NetworkManagerInstance == null)
             {
                 MelonLoader.MelonLogger.Error("[NetworkIntegrationService] NetworkManager not found!");
@@ -158,55 +308,34 @@ namespace SiroccoLobby.Services
                     var enableMethod = _reflection.TesterType.GetMethod("EnableSteamP2P",
                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                     if (enableMethod != null)
-                    {
-                        MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Calling EnableSteamP2P...");
                         InvokeSafe(enableMethod, _reflection.TesterInstance);
-                    }
                 }
-                
+
                 // Step 2: Set NetworkAddress to Steam ID
-                // The game's ConnectToSteamID uses GetField("NetworkAddress"), so we need to do the same
                 var networkManagerType = _reflection.NetworkManagerInstance.GetType();
                 var networkAddressField = networkManagerType.GetField("NetworkAddress",
                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                
+
                 if (networkAddressField != null)
                 {
-                    var currentValue = networkAddressField.GetValue(_reflection.NetworkManagerInstance);
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] NetworkAddress field type: {networkAddressField.FieldType.Name}");
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Current NetworkAddress value: '{currentValue}'");
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Setting to value: '{hostSteamId}'");
-                    
                     networkAddressField.SetValue(_reflection.NetworkManagerInstance, hostSteamId);
-                    
-                    var newValue = networkAddressField.GetValue(_reflection.NetworkManagerInstance);
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ Set NetworkAddress field to: '{newValue}'");
+                }
+                else if (_reflection.NetworkAddressProp != null)
+                {
+                    _reflection.NetworkAddressProp.SetValue(_reflection.NetworkManagerInstance, hostSteamId);
                 }
                 else
                 {
-                    MelonLoader.MelonLogger.Error("[NetworkIntegrationService] NetworkAddress field not found!");
-                    
-                    // Fallback to property if field not found
-                    if (_reflection.NetworkAddressProp != null)
-                    {
-                        MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Trying NetworkAddress property instead...");
-                        _reflection.NetworkAddressProp.SetValue(_reflection.NetworkManagerInstance, hostSteamId);
-                        MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ Set NetworkAddress property to: '{hostSteamId}'");
-                    }
-                    else
-                    {
-                        MelonLoader.MelonLogger.Error("[NetworkIntegrationService] Neither field nor property available! Cannot set host Steam ID.");
-                        return false;
-                    }
+                    MelonLoader.MelonLogger.Error("[NetworkIntegrationService] Cannot set host Steam ID — no NetworkAddress field or property.");
+                    return false;
                 }
-                
+
                 // Step 3: Call StartClientOnly()
                 var startClientOnlyMethod = networkManagerType.GetMethod("StartClientOnly",
                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                
+
                 if (startClientOnlyMethod != null)
                 {
-                    MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Calling StartClientOnly...");
                     InvokeSafe(startClientOnlyMethod, _reflection.NetworkManagerInstance);
                 }
                 else
@@ -214,22 +343,18 @@ namespace SiroccoLobby.Services
                     MelonLoader.MelonLogger.Warning("[NetworkIntegrationService] StartClientOnly method not found!");
                     return false;
                 }
-                
+
                 // Step 4: Set GameAuthority to ClientOnly mode
                 if (_reflection.GameAuthorityInstance != null)
                 {
                     var setClientOnlyMethod = _reflection.GameAuthorityType?.GetMethod("SetClientOnlyMode",
                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                    
+
                     if (setClientOnlyMethod != null)
-                    {
-                        MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Setting GameAuthority to ClientOnly mode...");
                         InvokeSafe(setClientOnlyMethod, _reflection.GameAuthorityInstance);
-                        MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] ✓ GameAuthority set to ClientOnly mode");
-                    }
                 }
-                
-                MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ Steam P2P connection sequence completed!");
+
+                MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Steam P2P connection sequence completed");
                 return true;
             }
             catch (Exception ex)
@@ -302,10 +427,6 @@ namespace SiroccoLobby.Services
             try
             {
                 result = InvokeSafe(_reflection.ValidatePlayersReadyMethod, _reflection.TesterInstance) as bool? ?? false;
-                MelonLoader.MelonLogger.Msg(result
-                    ? "[NetworkIntegrationService] Players ready validation succeeded."
-                    : "[NetworkIntegrationService] Players ready validation failed.");
-
                 OnValidationComplete?.Invoke(result);
             }
             catch (Exception ex)
@@ -373,47 +494,25 @@ namespace SiroccoLobby.Services
             {
                 // Re-bind tester instance if it wasn't available when the reflection bridge was constructed.
                 if (_reflection.TesterInstance == null && _reflection.TesterType != null)
-                {
                     _reflection.TesterInstance = TryFindUnityObjectInstance(_reflection.TesterType);
-                }
 
                 if (_reflection.TesterInstance == null)
-                {
-                    // Silently skip: this is expected in production flow and we've already logged once via _hasWarnedMissingPlayerStatusRefs
                     return;
-                }
 
-                // Optional: if the tester has a proto-lobby integration helper, call it once.
-                // If this explodes, we catch and continue dump anyway.
                 if (_reflection.IntegrateWithProtoLobbyMethod != null)
                 {
-                    try
-                    {
-                        InvokeSafe(_reflection.IntegrateWithProtoLobbyMethod, _reflection.TesterInstance);
-                        MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Invoked SteamP2PNetworkTester.IntegrateWithProtoLobby() for dump.");
-                    }
-                    catch
-                    {
-                        // ignore
-                    }
+                    try { InvokeSafe(_reflection.IntegrateWithProtoLobbyMethod, _reflection.TesterInstance); }
+                    catch { }
                 }
 
                 if (_reflection.DisplayProtoLobbyPlayerStatusMethod != null)
                 {
-                    try
-                    {
-                        InvokeSafe(_reflection.DisplayProtoLobbyPlayerStatusMethod, _reflection.TesterInstance);
-                        MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Invoked SteamP2PNetworkTester.DisplayProtoLobbyPlayerStatus() for dump.");
-                    }
-                    catch
-                    {
-                        // ignore
-                    }
+                    try { InvokeSafe(_reflection.DisplayProtoLobbyPlayerStatusMethod, _reflection.TesterInstance); }
+                    catch { }
                 }
 
                 ProtoLobbyDumper.Dump(_reflection.TesterInstance, label: $"SteamP2PNetworkTester graph ({reason})");
 
-                // Also dump cachedConnectionInfo directly if possible (often the real gold).
                 if (_reflection.CachedInfoField != null)
                 {
                     var info = _reflection.CachedInfoField.GetValue(_reflection.TesterInstance);
@@ -581,13 +680,6 @@ namespace SiroccoLobby.Services
 
         public void DisconnectClient() => ShutdownNetwork(false);
 
-        // P2P placeholders
-        public void InitializeP2PConnections() =>
-            MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] P2P init requested, but not implemented in this mod build.");
-
-        public void ReceiveP2PData() =>
-            MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] P2P receive requested, but not implemented in this mod build.");
-
         #endregion
 
         #region Private Helpers
@@ -633,131 +725,67 @@ namespace SiroccoLobby.Services
 
         private void ConnectToRemoteServer(string address)
         {
-            MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] === ConnectToRemoteServer called with address: {address} ===");
-            
-            // Verify NetworkManager is ready
             if (_reflection.NetworkManagerInstance == null)
             {
-                MelonLoader.MelonLogger.Error("[NetworkIntegrationService] NetworkManager instance is NULL - cannot connect!");
+                MelonLoader.MelonLogger.Error("[NetworkIntegrationService] NetworkManager instance is NULL — cannot connect!");
                 return;
             }
-            
-            MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] NetworkManager instance: {_reflection.NetworkManagerInstance.GetType().Name}");
-            
-            // Strategy: Try NetworkManager.StartClient(uri) first (proper Mirror pattern for Steam P2P)
-            // This ensures the client connects via NetworkManager using the configured Steam P2P transport
-            
+
             bool connected = false;
-            
-            // Option 1: Use NetworkManager.StartClient(Uri) overload if available
-            if (_reflection.StartClientWithUriMethod != null && _reflection.NetworkManagerInstance != null)
+
+            // Option 1: Use NetworkManager.StartClient(Uri) — proper Mirror pattern for Steam P2P
+            if (!connected && _reflection.StartClientWithUriMethod != null)
             {
                 try
                 {
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Attempting NetworkManager.StartClient(Uri) with address: {address}");
-                    
-                    // CRITICAL: IL2CPP games need Il2CppSystem.Uri, not System.Uri!
                     var il2cppUriType = System.Type.GetType("Il2CppSystem.Uri, Il2Cppmscorlib");
-                    if (il2cppUriType != null)
+                    var uriConstructor = il2cppUriType?.GetConstructor(new[] { typeof(string) });
+                    if (uriConstructor != null)
                     {
-                        // Try without scheme first (just the Steam ID)
-                        var uriConstructor = il2cppUriType.GetConstructor(new[] { typeof(string) });
-                        if (uriConstructor != null)
-                        {
-                            // Try just the Steam ID without any scheme
-                            var il2cppUri = uriConstructor.Invoke(new object[] { address });
-                            InvokeSafe(_reflection.StartClientWithUriMethod, _reflection.NetworkManagerInstance, il2cppUri);
-                            MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ Called NetworkManager.StartClient(Il2CppSystem.Uri) with: {address}");
-                            connected = true;
-                        }
-                        else
-                        {
-                            MelonLoader.MelonLogger.Warning("[NetworkIntegrationService] Il2CppSystem.Uri constructor not found");
-                        }
-                    }
-                    else
-                    {
-                        MelonLoader.MelonLogger.Warning("[NetworkIntegrationService] Il2CppSystem.Uri type not found");
+                        var il2cppUri = uriConstructor.Invoke(new object[] { address });
+                        InvokeSafe(_reflection.StartClientWithUriMethod, _reflection.NetworkManagerInstance, il2cppUri);
+                        connected = true;
                     }
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
                     MelonLoader.MelonLogger.Warning($"[NetworkIntegrationService] StartClient(Uri) failed: {ex.Message}");
-                    MelonLoader.MelonLogger.Warning($"[NetworkIntegrationService] Stack: {ex.StackTrace}");
                 }
             }
-            else
-            {
-                if (_reflection.StartClientWithUriMethod == null)
-                    MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] StartClient(Uri) method not found");
-            }
-            
+
             // Option 2: Set address property and call StartClient() with no parameters
-            if (!connected && _reflection.StartClientMethod != null && _reflection.NetworkManagerInstance != null)
+            if (!connected && _reflection.StartClientMethod != null)
             {
                 try
                 {
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Attempting NetworkManager.StartClient() (no params)");
-                    
-                    if (_reflection.NetworkAddressProp != null)
-                    {
-                        // Read current value first
-                        var currentValue = _reflection.NetworkAddressProp.GetValue(_reflection.NetworkManagerInstance);
-                        MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Current NetworkAddress value: '{currentValue}'");
-                        
-                        // Set the new address
-                        _reflection.NetworkAddressProp.SetValue(_reflection.NetworkManagerInstance, address);
-                        
-                        // Verify it was set
-                        var newValue = _reflection.NetworkAddressProp.GetValue(_reflection.NetworkManagerInstance);
-                        MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Set NetworkManager.{_reflection.NetworkAddressProp.Name} = '{newValue}'");
-                        
-                        if (newValue?.ToString() != address)
-                        {
-                            MelonLoader.MelonLogger.Warning($"[NetworkIntegrationService] WARNING: Address property set failed! Expected: '{address}', Got: '{newValue}'");
-                        }
-                    }
-                    else
-                    {
-                        MelonLoader.MelonLogger.Warning("[NetworkIntegrationService] NetworkAddress property not found - calling StartClient() anyway");
-                    }
-                    
+                    _reflection.NetworkAddressProp?.SetValue(_reflection.NetworkManagerInstance, address);
                     InvokeSafe(_reflection.StartClientMethod, _reflection.NetworkManagerInstance);
-                    MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ Called NetworkManager.StartClient()");
                     connected = true;
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
                     MelonLoader.MelonLogger.Warning($"[NetworkIntegrationService] StartClient() failed: {ex.Message}");
-                    MelonLoader.MelonLogger.Warning($"[NetworkIntegrationService] Stack: {ex.StackTrace}");
                 }
             }
-            else
-            {
-                if (_reflection.StartClientMethod == null)
-                    MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] StartClient() method not found");
-            }
-            
-            // Option 3: Fallback to NetworkClient.Connect(address) - BUT THIS CONNECTS TO LOCALHOST!
+
+            // Option 3: Fallback to NetworkClient.Connect(address) — may connect to localhost
             if (!connected)
             {
-                MelonLoader.MelonLogger.Warning("[NetworkIntegrationService] NetworkManager.StartClient not available, using NetworkClient.Connect fallback");
-                MelonLoader.MelonLogger.Warning("[NetworkIntegrationService] WARNING: This may connect to localhost instead of remote host!");
-                
+                MelonLoader.MelonLogger.Warning("[NetworkIntegrationService] Using NetworkClient.Connect fallback (may connect to localhost!)");
+
                 var method = _reflection.ConnectMethod;
                 if (method == null || method.GetParameters().Length < 1)
                 {
                     MelonLoader.MelonLogger.Error("[NetworkIntegrationService] Connect method not found or invalid signature.");
                     return;
                 }
-                
+
                 InvokeSafe(method, null, address);
-                MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] ✓ Called NetworkClient.Connect({address}) as fallback");
             }
 
             _authTrace.TrackStates(IsClientConnected, SafeGetIsAuthenticated(), "after-connect-attempt");
 
-            MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] === Connection attempt completed ===");
+            MelonLoader.MelonLogger.Msg($"[NetworkIntegrationService] Connected to remote server: {address}");
         }
 
         private bool IsClientAuthenticated()
@@ -801,8 +829,6 @@ namespace SiroccoLobby.Services
                     if (_clientAuthenticator.Authenticate())
                     {
                         _authTrace.LogAuthenticatorTriggered(true, "resolver/helper");
-                        MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Triggered client authenticator (OnClientAuthenticate)."
-                        );
                         return;
                     }
                     _authTrace.LogAuthenticatorTriggered(false, "resolver/helper");
@@ -817,7 +843,6 @@ namespace SiroccoLobby.Services
             if (_reflection.AuthenticatorInstance != null && _reflection.OnClientAuthenticateMethod != null)
             {
                 _authTrace.LogAuthenticatorTriggered(true, "fallback/reflection");
-                MelonLoader.MelonLogger.Msg("[NetworkIntegrationService] Triggering Mirror authenticator (fallback): OnClientAuthenticate()" );
                 InvokeSafe(_reflection.OnClientAuthenticateMethod, _reflection.AuthenticatorInstance);
             }
         }
