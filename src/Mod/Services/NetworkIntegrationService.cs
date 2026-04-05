@@ -63,6 +63,132 @@ namespace SiroccoLobby.Services
         /// <summary>
         /// Disables AI brains on dummy players by setting
         /// SimulationManager._isUsingDummyPlayersWithBrains = false.
+        /// Call after the game has started and SimulationManager exists in the scene.
+        /// </summary>
+        /// <summary>
+        /// Initializes _playerAccountIDsWithOtherClients and _playerNamesWithOtherClients
+        /// on GameAuthority if they are null. These arrays are normally populated by the
+        /// game's backend lobby, which is shut down. Without them the scoreboard crashes.
+        /// </summary>
+        private bool _scoreboardArraysCreated;
+        private bool _scoreboardDataPopulated;
+
+        public bool FixScoreboardData()
+        {
+            try
+            {
+                var gaInstance = _reflection.GameAuthorityInstance;
+                var gaType = _reflection.GameAuthorityType;
+                if (gaInstance == null || gaType == null) return false;
+
+                var accountIdsProp = gaType.GetProperty("_playerAccountIDsWithOtherClients", BindingFlags.Public | BindingFlags.Instance);
+                var namesProp = gaType.GetProperty("_playerNamesWithOtherClients", BindingFlags.Public | BindingFlags.Instance);
+                if (accountIdsProp == null || namesProp == null) return false;
+
+                var accountIds = accountIdsProp.GetValue(gaInstance);
+                var names = namesProp.GetValue(gaInstance);
+
+                // Step 1: Create empty arrays if they don't exist (once)
+                if (!_scoreboardArraysCreated && (accountIds == null || names == null))
+                {
+                    int playerCount = 11; // Default
+                    var getMappingsMethod = gaType.GetMethod("GetPlayerConnectionMappings", BindingFlags.Public | BindingFlags.Instance);
+                    if (getMappingsMethod != null)
+                    {
+                        var mappings = getMappingsMethod.Invoke(gaInstance, null);
+                        if (mappings != null)
+                        {
+                            int len = IL2CppArrayHelper.GetLen(mappings);
+                            if (len > 0) playerCount = len;
+                        }
+                    }
+
+                    if (accountIds == null)
+                    {
+                        var ctor = accountIdsProp.PropertyType.GetConstructor(new[] { typeof(long) });
+                        if (ctor != null)
+                            accountIdsProp.SetValue(gaInstance, ctor.Invoke(new object[] { (long)playerCount }));
+                    }
+                    if (names == null)
+                    {
+                        var ctor = namesProp.PropertyType.GetConstructor(new[] { typeof(long) });
+                        if (ctor != null)
+                            namesProp.SetValue(gaInstance, ctor.Invoke(new object[] { (long)playerCount }));
+                    }
+
+                    if (!_scoreboardArraysCreated)
+                    {
+                        MelonLoader.MelonLogger.Msg($"[FixScoreboard] Created empty arrays ({playerCount} slots)");
+                        _scoreboardArraysCreated = true;
+                    }
+                }
+
+                // Step 2: Try to populate with real data from player mappings (host has this data)
+                if (!_scoreboardDataPopulated)
+                {
+                    accountIds = accountIdsProp.GetValue(gaInstance);
+                    names = namesProp.GetValue(gaInstance);
+                    if (accountIds == null || names == null) return _scoreboardArraysCreated;
+
+                    var getMappingsMethod = gaType.GetMethod("GetPlayerConnectionMappings", BindingFlags.Public | BindingFlags.Instance);
+                    if (getMappingsMethod == null) return _scoreboardArraysCreated;
+
+                    var mappings = getMappingsMethod.Invoke(gaInstance, null);
+                    if (mappings == null) return _scoreboardArraysCreated;
+
+                    var itemProp = IL2CppArrayHelper.GetItemProperty(mappings);
+                    if (itemProp == null) return _scoreboardArraysCreated;
+
+                    int count = IL2CppArrayHelper.GetLen(mappings);
+
+                    // Check if any mapping has a real name
+                    bool hasData = false;
+                    for (int i = 0; i < count && !hasData; i++)
+                    {
+                        try
+                        {
+                            var m = itemProp.GetValue(mappings, new object[] { i });
+                            var np = m?.GetType().GetProperty("DisplayName", BindingFlags.Public | BindingFlags.Instance);
+                            if (!string.IsNullOrEmpty(np?.GetValue(m)?.ToString())) hasData = true;
+                        }
+                        catch { }
+                    }
+                    if (!hasData) return _scoreboardArraysCreated;
+
+                    var namesItemProp = names.GetType().GetProperty("Item");
+                    var idsItemProp = accountIds.GetType().GetProperty("Item");
+                    if (namesItemProp == null || idsItemProp == null) return _scoreboardArraysCreated;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        try
+                        {
+                            var mapping = itemProp.GetValue(mappings, new object[] { i });
+                            if (mapping == null) continue;
+                            var dn = mapping.GetType().GetProperty("DisplayName", BindingFlags.Public | BindingFlags.Instance);
+                            var pid = mapping.GetType().GetProperty("PlayerId", BindingFlags.Public | BindingFlags.Instance);
+                            namesItemProp.SetValue(names, dn?.GetValue(mapping)?.ToString() ?? "", new object[] { i });
+                            idsItemProp.SetValue(accountIds, (uint)(pid?.GetValue(mapping) ?? 0u), new object[] { i });
+                        }
+                        catch { }
+                    }
+
+                    MelonLoader.MelonLogger.Msg($"[FixScoreboard] Populated scoreboard with player data ({count} slots)");
+                    _scoreboardDataPopulated = true;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Warning($"[FixScoreboard] Error: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Disables AI brains on dummy players by setting
+        /// SimulationManager._isUsingDummyPlayersWithBrains = false.
         /// Gets SimulationManager via GameAuthority.GetSimulationManager().
         /// </summary>
         public bool DisableDummyBrains()

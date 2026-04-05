@@ -161,6 +161,70 @@ namespace SiroccoLobby
                 // (defaults to false/bots enabled, user can check to disable)
             }
 
+            // Try to initialize ProtoLobby if not yet done (needed for scoreboard fix)
+            if (_isInPlayableScene && !_protoInitialized && _protoLobby != null)
+            {
+                try { if (_protoLobby.Initialize()) _protoInitialized = true; }
+                catch { }
+            }
+
+            // Fix scoreboard arrays and detect game start for all clients
+            if (_protoLobby != null && _protoInitialized && (_wasServerActive || _wasClientConnected))
+            {
+                _protoLobby.FixScoreboardData();
+
+                // Detect game start: bots with real names appear (host) or SimulationManager exists (client)
+                if (_state?.GameHasStarted != true)
+                {
+                    bool gameStarted = false;
+
+                    // Host: check for bot players (names starting with "(bot)")
+                    var players = _protoLobby.GetGamePlayerStatus();
+                    int botCount = 0;
+                    foreach (var (name, _, _, _, _) in players)
+                    {
+                        if (name.StartsWith("(bot)")) botCount++;
+                    }
+                    if (botCount > 0) gameStarted = true;
+
+                    // Client: check if GameAuthorityState has reached GameRunning (100+)
+                    if (!gameStarted && _wasClientConnected && !_wasServerActive)
+                    {
+                        try
+                        {
+                            var gaInstance = _protoLobby.Reflection.GameAuthorityInstance;
+                            var gaType = _protoLobby.Reflection.GameAuthorityType;
+                            if (gaInstance != null && gaType != null)
+                            {
+                                var getStateMethod = gaType.GetMethod("GetGameAuthorityState",
+                                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                                if (getStateMethod != null)
+                                {
+                                    var stateObj = getStateMethod.Invoke(gaInstance, null);
+                                    // GameRunning = 100. States >= 90 indicate game start/running.
+                                    // ProtoLobby = 10, so the lobby phase won't trigger this.
+                                    if (stateObj != null && (int)stateObj >= 90)
+                                        gameStarted = true;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (gameStarted)
+                    {
+                        MelonLogger.Msg("[GameDetect] Game started - hiding lobby UI");
+
+                        _showUI = false;
+                        if (_state != null)
+                        {
+                            _state.ShowDebugUI = false;
+                            _state.GameHasStarted = true;
+                        }
+                    }
+                }
+            }
+
             // F5 toggle
             if (Input.GetKeyDown(KeyCode.F5))
             {

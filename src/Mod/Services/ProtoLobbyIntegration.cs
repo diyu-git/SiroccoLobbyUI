@@ -110,6 +110,7 @@ namespace SiroccoLobby.Services
         public bool ValidatePlayersReadyForGameStart() => Network.ValidatePlayersReadyForGameStart();
         public void ConnectToGameServer(string? address = null) => Network.ConnectToGameServer(address);
         public bool DisableDummyBrains() => Network.DisableDummyBrains();
+        public bool FixScoreboardData() => Network.FixScoreboardData();
         public System.Collections.Generic.List<(ulong SteamId, string Name)> GetP2PConnectedPlayers() => Network.GetP2PConnectedPlayers();
         public System.Collections.Generic.List<(string Name, bool IsTeamA, bool IsReady, bool IsConnected, string CaptainId)> GetGamePlayerStatus() => Network.GetGamePlayerStatus();
 
