@@ -26,6 +26,7 @@ namespace SiroccoLobby.UI
         public static GUIStyle? SuccessFeedbackStyle;
 
         private static bool _initialized;
+        public static bool IsInitialized => _initialized;
 
         // Oceanic Palette
         private static readonly Color ColorOceanDeep = HexToColor("0a1628");   // Background
@@ -37,7 +38,8 @@ namespace SiroccoLobby.UI
 
         public static void Init()
         {
-            if (_initialized) return;
+            if (_initialized && WindowStyle?.normal?.background != null) return;
+            _initialized = false;
             if (GUI.skin == null) return;
 
             try
