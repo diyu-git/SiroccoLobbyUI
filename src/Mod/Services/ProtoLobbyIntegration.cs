@@ -18,6 +18,16 @@ namespace SiroccoLobby.Services
         public event Action<bool>? OnReadyChanged;
         public event Action? OnClientGameStarted; // New event for client game start
 
+        // Network lifecycle events — fired by Harmony patches on WartideNetworkManager.
+        // Mirror the inner NetworkIntegrationService events here so consumers can subscribe
+        // to a stable surface even if Network is recreated during deferred init.
+        public event Action? OnServerStarted;
+        public event Action? OnServerStopped;
+        public event Action? OnClientConnectedToHost;
+        public event Action? OnClientDisconnectedFromHost;
+        public event Action? OnP2PPeersChanged;
+        public event Action? OnGamePlayerStatusChanged;
+
         private bool _initialized;
 
         public ProtoLobbyIntegration()
@@ -113,7 +123,29 @@ namespace SiroccoLobby.Services
             Completion.OnLobbyClientCompleted -= OnClientCompleted;
             Completion.OnLobbyServerCompleted += OnServerCompleted;
             Completion.OnLobbyClientCompleted += OnClientCompleted;
+
+            // Forward Network lifecycle events out to our stable facade events.
+            Network.OnServerStarted -= ForwardServerStarted;
+            Network.OnServerStopped -= ForwardServerStopped;
+            Network.OnClientConnectedToHost -= ForwardClientConnectedToHost;
+            Network.OnClientDisconnectedFromHost -= ForwardClientDisconnectedFromHost;
+            Network.OnP2PPeersChanged -= ForwardP2PPeersChanged;
+            Network.OnGamePlayerStatusChanged -= ForwardGamePlayerStatusChanged;
+
+            Network.OnServerStarted += ForwardServerStarted;
+            Network.OnServerStopped += ForwardServerStopped;
+            Network.OnClientConnectedToHost += ForwardClientConnectedToHost;
+            Network.OnClientDisconnectedFromHost += ForwardClientDisconnectedFromHost;
+            Network.OnP2PPeersChanged += ForwardP2PPeersChanged;
+            Network.OnGamePlayerStatusChanged += ForwardGamePlayerStatusChanged;
         }
+
+        private void ForwardServerStarted() => OnServerStarted?.Invoke();
+        private void ForwardServerStopped() => OnServerStopped?.Invoke();
+        private void ForwardClientConnectedToHost() => OnClientConnectedToHost?.Invoke();
+        private void ForwardClientDisconnectedFromHost() => OnClientDisconnectedFromHost?.Invoke();
+        private void ForwardP2PPeersChanged() => OnP2PPeersChanged?.Invoke();
+        private void ForwardGamePlayerStatusChanged() => OnGamePlayerStatusChanged?.Invoke();
 
         private static void OnServerCompleted() => MelonLogger.Msg("[ProtoLobbyIntegration] Lobby server completed.");
         

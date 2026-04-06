@@ -47,8 +47,45 @@ namespace SiroccoLobby.Controller
             if (_protoLobby != null)
             {
                 _protoLobby.OnClientGameStarted += OnClientGameStarted;
+
+                // Subscribe to the Harmony-driven network lifecycle events.
+                // These fire from WartideNetworkManager's Mirror callbacks — no polling.
+                _protoLobby.OnP2PPeersChanged += OnP2PPeersChangedHandler;
+                _protoLobby.OnGamePlayerStatusChanged += OnGamePlayerStatusChangedHandler;
+                _protoLobby.OnServerStopped += OnServerStoppedHandler;
             }
 
+        }
+
+        // Triggered when a P2P peer connects/disconnects from us as host.
+        // The cached snapshot inside NetworkIntegrationService has already been refreshed.
+        private void OnP2PPeersChangedHandler()
+        {
+            if (!_state.IsHost) return;
+            try { RefreshMembers(_state.CurrentLobby); }
+            catch (Exception ex) { _log.Warning($"[LobbyController] OnP2PPeersChanged refresh failed: {ex.Message}"); }
+        }
+
+        // Triggered when the game's player connection mappings change (player added).
+        private void OnGamePlayerStatusChangedHandler()
+        {
+            if (!_state.IsHost) return;
+            try { RefreshMembers(_state.CurrentLobby); }
+            catch (Exception ex) { _log.Warning($"[LobbyController] OnGamePlayerStatusChanged refresh failed: {ex.Message}"); }
+        }
+
+        // Triggered when the server stops (host) or we get disconnected (client).
+        // Clear the unmodded-player metadata if we owned the lobby.
+        private void OnServerStoppedHandler()
+        {
+            try
+            {
+                if (_state.CurrentLobby != null && _state.IsHost)
+                {
+                    _steam.SetLobbyData(_state.CurrentLobby, "p2p_players", "");
+                }
+            }
+            catch (Exception ex) { _log.Warning($"[LobbyController] OnServerStopped cleanup failed: {ex.Message}"); }
         }
 
         private void OnClientGameStarted()

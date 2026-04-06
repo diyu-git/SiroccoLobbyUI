@@ -9,7 +9,9 @@ namespace SiroccoLobby.Services
 {
     /// <summary>
     /// Handles network operations: connect, ready, validation, P2P.
-    /// Refactored for readability, caching, and events.
+    /// State changes (server start/stop, peer connect/disconnect, game roster changes)
+    /// are driven by Harmony patches on WartideNetworkManager — see NetworkLifecyclePatches.
+    /// This service holds the cached state and re-fires the events to consumers.
     /// </summary>
     public class NetworkIntegrationService
     {
@@ -29,16 +31,37 @@ namespace SiroccoLobby.Services
 
         private bool _hasWarnedMissingTesterValidation;
 
+        // Cached snapshots — refreshed when lifecycle events fire from Harmony patches.
+        // Public Get* methods return the cached snapshots so consumers don't trigger reflection.
+        private List<(ulong SteamId, string Name)> _cachedP2PPeers = new List<(ulong, string)>();
+        private List<(string Name, bool IsTeamA, bool IsReady, bool IsConnected, string CaptainId)> _cachedGamePlayerStatus =
+            new List<(string, bool, bool, bool, string)>();
+
         private static readonly ObjectDumper ProtoLobbyDumper = new ObjectDumper(
             memberFilter: ObjectDumper.ProtoLobbyRelatedFilter,
             maxDepth: 3,
             prefix: "[ProtoDump]",
             maxEnumerableItems: 8);
 
-        // Events
+        // Existing events (preserved)
         public event Action? OnConnected;
         public event Action? OnPlayerReady;
         public event Action<bool>? OnValidationComplete;
+
+        // New lifecycle events — fired in response to Harmony patches on WartideNetworkManager.
+        // Subscribers should subscribe to ProtoLobbyIntegration's mirrored events instead of these
+        // directly, because NIS may be recreated during deferred initialization.
+        public event Action? OnServerStarted;
+        public event Action? OnServerStopped;
+        public event Action? OnClientConnectedToHost;
+        public event Action? OnClientDisconnectedFromHost;
+        public event Action? OnP2PPeersChanged;
+        public event Action? OnGamePlayerStatusChanged;
+
+        // Latest constructed instance — Harmony patches dispatch through this static field
+        // so they don't need to know about service lifetime. ProtoLobbyIntegration may
+        // recreate this service during lazy init; the latest one wins.
+        private static NetworkIntegrationService? _instance;
 
         public NetworkIntegrationService(GameReflectionBridge reflection)
         {
@@ -54,6 +77,71 @@ namespace SiroccoLobby.Services
 
             CacheNetworkClientProperties();
             CacheNetworkServerProperties();
+
+            _instance = this;
+        }
+
+        // ============================================================
+        // Static dispatch entry points for Harmony patches
+        // (kept here so the patch class only depends on NIS, not the
+        // whole ProtoLobbyIntegration facade.)
+        // ============================================================
+
+        internal static void NotifyServerStarted() => _instance?.HandleServerStarted();
+        internal static void NotifyServerStopped() => _instance?.HandleServerStopped();
+        internal static void NotifyClientConnectedToHost() => _instance?.HandleClientConnectedToHost();
+        internal static void NotifyClientDisconnectedFromHost() => _instance?.HandleClientDisconnectedFromHost();
+        internal static void NotifyServerPeerConnected() => _instance?.HandleServerPeerChanged();
+        internal static void NotifyServerPeerDisconnected() => _instance?.HandleServerPeerChanged();
+        internal static void NotifyServerPlayerAdded() => _instance?.HandleServerPlayerAdded();
+
+        private void HandleServerStarted()
+        {
+            _cachedP2PPeers = ProbeP2PConnectedPlayers();
+            _cachedGamePlayerStatus = ProbeGamePlayerStatus();
+            OnServerStarted?.Invoke();
+        }
+
+        private void HandleServerStopped()
+        {
+            _cachedP2PPeers = new List<(ulong, string)>();
+            _cachedGamePlayerStatus = new List<(string, bool, bool, bool, string)>();
+            OnServerStopped?.Invoke();
+            // Server stop also implies peers gone + roster gone
+            OnP2PPeersChanged?.Invoke();
+            OnGamePlayerStatusChanged?.Invoke();
+        }
+
+        private void HandleClientConnectedToHost() => OnClientConnectedToHost?.Invoke();
+
+        private void HandleClientDisconnectedFromHost()
+        {
+            _cachedP2PPeers = new List<(ulong, string)>();
+            _cachedGamePlayerStatus = new List<(string, bool, bool, bool, string)>();
+            OnClientDisconnectedFromHost?.Invoke();
+        }
+
+        private void HandleServerPeerChanged()
+        {
+            _cachedP2PPeers = ProbeP2PConnectedPlayers();
+            OnP2PPeersChanged?.Invoke();
+        }
+
+        private void HandleServerPlayerAdded()
+        {
+            _cachedGamePlayerStatus = ProbeGamePlayerStatus();
+            OnGamePlayerStatusChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Force-refresh cached snapshots from reflection. Used by consumers (e.g.
+        /// LobbyController) right after entering a lobby, when no Mirror lifecycle
+        /// event has fired yet but they need a fresh state.
+        /// </summary>
+        public void RefreshSnapshots()
+        {
+            _cachedP2PPeers = ProbeP2PConnectedPlayers();
+            _cachedGamePlayerStatus = ProbeGamePlayerStatus();
         }
 
         #region Public Methods
@@ -63,10 +151,18 @@ namespace SiroccoLobby.Services
         public bool IsServerActive => _networkServerActiveProp != null && (bool)(_networkServerActiveProp.GetValue(null) ?? false);
 
         /// <summary>
-        /// Gets player info from GameAuthority.GetPlayerConnectionMappings().
-        /// Returns DisplayName, IsTeamA, and CaptainTypeID.Value for each registered player.
+        /// Returns the cached player roster — refreshed automatically when WartideNetworkManager
+        /// fires OnServerAddPlayer (via Harmony patch). Call RefreshSnapshots() to force a re-probe.
         /// </summary>
         public List<(string Name, bool IsTeamA, bool IsReady, bool IsConnected, string CaptainId)> GetGamePlayerStatus()
+            => new List<(string, bool, bool, bool, string)>(_cachedGamePlayerStatus);
+
+        /// <summary>
+        /// Reflects GameAuthority.GetPlayerConnectionMappings() and projects each entry into
+        /// (DisplayName, IsTeamA, CaptainTypeID.Value). Called from the Harmony-driven event
+        /// pipeline; do not call from per-frame code.
+        /// </summary>
+        private List<(string Name, bool IsTeamA, bool IsReady, bool IsConnected, string CaptainId)> ProbeGamePlayerStatus()
         {
             var result = new List<(string, bool, bool, bool, string)>();
             try
@@ -132,11 +228,19 @@ namespace SiroccoLobby.Services
         }
 
         /// <summary>
-        /// Gets Steam IDs of players connected via Steam P2P transport.
+        /// Returns the cached P2P peer list — refreshed automatically when WartideNetworkManager
+        /// fires OnServerConnect/OnServerDisconnect (via Harmony patch).
+        /// </summary>
+        public List<(ulong SteamId, string Name)> GetP2PConnectedPlayers()
+            => new List<(ulong, string)>(_cachedP2PPeers);
+
+        /// <summary>
+        /// Reflects the Steam P2P transport's connection table. Called from the Harmony-driven
+        /// event pipeline; do not call from per-frame code.
         /// On the server: reads GetAllConnections().
         /// On the client: reads GetClientConnectionInfo() for the host connection.
         /// </summary>
-        public List<(ulong SteamId, string Name)> GetP2PConnectedPlayers()
+        private List<(ulong SteamId, string Name)> ProbeP2PConnectedPlayers()
         {
             var result = new List<(ulong, string)>();
             try
