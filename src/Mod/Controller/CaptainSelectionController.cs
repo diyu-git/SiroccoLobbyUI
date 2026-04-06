@@ -55,7 +55,6 @@ namespace SiroccoLobby.Controller
                 MelonLogger.Warning($"[CaptainSelection] Could not set username: {ex.Message}");
             }
 
-            //MelonLogger.Msg($"[CaptainSelection] Initialized with {_protoLobby.GetCaptainCount()} captains available");
             _initialized = true;
             return true;
         }

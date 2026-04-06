@@ -52,7 +52,7 @@ Thumbs.db
 Directory.Build.props.user
 
 # UI documentation folder with screenshots
-UI/
+/UI/
 
 # Release packages
 release/
