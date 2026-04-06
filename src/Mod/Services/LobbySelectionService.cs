@@ -33,6 +33,7 @@ namespace SiroccoLobby.Services
                 _cachedCaptainsList = null; // Invalidate cache on init
                 _captainNameProp = null;
                 _captainNamePropType = null;
+                _typeIdToIndexCache = null;
                 OnCaptainsInitialized?.Invoke();
             }
             catch (Exception ex)
@@ -146,6 +147,63 @@ namespace SiroccoLobby.Services
             }
         }
 
+
+        private Dictionary<int, int>? _typeIdToIndexCache;
+
+        /// <summary>
+        /// Looks up a captain name by its TypeID value (int).
+        /// Builds a typeID→index cache on first call, then delegates to GetCaptainName(index).
+        /// </summary>
+        public string GetCaptainNameByTypeId(int typeIdValue)
+        {
+            if (_typeIdToIndexCache == null)
+            {
+                _typeIdToIndexCache = new Dictionary<int, int>();
+                var list = GetCaptainsList();
+                if (list != null)
+                {
+                    try
+                    {
+                        var countProp = list.GetType().GetProperty("Count");
+                        int count = (int)(countProp?.GetValue(list) ?? 0);
+                        var itemProp = list.GetType().GetProperty("Item");
+
+                        for (int i = 0; i < count; i++)
+                        {
+                            var captain = itemProp?.GetValue(list, new object[] { i });
+                            if (captain == null) continue;
+
+                            var typeIdProp = captain.GetType().GetProperty("captainTypeID", BindingFlags.Public | BindingFlags.Instance);
+                            if (typeIdProp == null) continue;
+                            var typeId = typeIdProp.GetValue(captain);
+                            if (typeId == null) continue;
+
+                            int value = 0;
+                            var valField = typeId.GetType().GetField("Value", BindingFlags.Public | BindingFlags.Instance);
+                            if (valField != null)
+                                value = (int)(valField.GetValue(typeId) ?? 0);
+                            else
+                            {
+                                var valProp = typeId.GetType().GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+                                if (valProp != null)
+                                    value = (int)(valProp.GetValue(typeId) ?? 0);
+                            }
+
+                            _typeIdToIndexCache[value] = i;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MelonLoader.MelonLogger.Warning($"[LobbySelectionService] Failed to build TypeID cache: {ex.Message}");
+                    }
+                }
+            }
+
+            if (_typeIdToIndexCache.TryGetValue(typeIdValue, out var index))
+                return GetCaptainName(index);
+
+            return $"TypeID:{typeIdValue}";
+        }
 
         public event Action<int>? OnSelectedCaptainChanged;
         public event Action<int>? OnSelectedTeamChanged;

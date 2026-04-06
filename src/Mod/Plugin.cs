@@ -47,7 +47,9 @@ namespace SiroccoLobby
         private const int PROTO_INIT_FRAME_DELAY = 8; // wait 8 frames between attempts
 
         private bool _isSteamInitialized = false;
-            
+        private bool _isInPlayableScene = false;
+        private bool _networkPatchesApplied = false;
+
         // CONFIG: Production Version (No Patching)
         // Set to true only if you need low-level IL2CPP tracing
         // Make this non-const to avoid compile-time unreachable-code warnings when false.
@@ -92,6 +94,11 @@ namespace SiroccoLobby
             // Create controller (controller depends on the library interface and the wrapper)
             _controller = new LobbyController(_state, libAdapter, _protoLobby, LoggerInstance, _serviceWrapper);
 
+            // Subscribe to network lifecycle events from the Harmony-driven event bridge.
+            // No polling — these fire from WartideNetworkManager's Mirror callbacks.
+            _protoLobby.OnServerStarted += OnNativeServerStarted;
+            _protoLobby.OnClientConnectedToHost += OnNativeClientConnectedToHost;
+
             // Create CaptainSelectionController but defer initialization until the game is ready
             // (Assembly-CSharp / GameAuthority may not be available at Melon init time).
             try
@@ -126,10 +133,13 @@ namespace SiroccoLobby
             _controller?.OnUpdate();
             // Let the controller process any pending lobby summary updates (debounced)
             _controller?.ProcessPendingBatch();
-            
+
             // F5 toggle
             if (Input.GetKeyDown(KeyCode.F5))
             {
+                if (!_isInPlayableScene)
+                    return;
+
                 // Don't allow reopening UI after game has started
                 if (_state?.GameHasStarted == true)
                 {
@@ -167,6 +177,15 @@ namespace SiroccoLobby
                                     {
                                         _protoInitialized = true; // Mark as initialized
                                         MelonLogger.Msg("ProtoLobby initialized successfully");
+
+                                        // Now that Assembly-CSharp is loaded and reflection works,
+                                        // apply Harmony patches that turn Mirror lifecycle callbacks
+                                        // into our event surface. Idempotent — safe to call repeatedly.
+                                        if (!_networkPatchesApplied)
+                                        {
+                                            Services.NetworkLifecyclePatches.Apply(HarmonyInstance);
+                                            _networkPatchesApplied = true;
+                                        }
                                     }
                                 }
                                 catch (Exception ex)
@@ -236,6 +255,39 @@ namespace SiroccoLobby
                     }
                 }
             }
+        }
+
+        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        {
+            MelonLogger.Msg($"[Scene] Loaded: '{sceneName}' (index {buildIndex})");
+            if (sceneName == "GlobalPlayableShipsObjectPool")
+            {
+                _isInPlayableScene = true;
+            }
+        }
+
+        // Fired by the Harmony patch on WartideNetworkManager.OnStartServer.
+        // We act on the same condition the old polling block checked for.
+        private void OnNativeServerStarted()
+        {
+            if (!_isSteamInitialized || !_isInPlayableScene || _state == null) return;
+
+            MelonLogger.Msg("[ServerEvent] P2P server started — creating Steam lobby for discovery");
+            _steamManager?.CreateLobby(10);
+            _state.IsSearchingForHostedLobby = true;
+            _state.IsHost = true;
+            _state.ViewState = Model.LobbyUIState.Room;
+        }
+
+        // Fired by the Harmony patch on WartideNetworkManager.OnClientAuthenticated.
+        // Only acts when there is no Steam lobby — meaning we joined an unmodded host directly.
+        private void OnNativeClientConnectedToHost()
+        {
+            if (!_isSteamInitialized || !_isInPlayableScene || _state == null) return;
+            if (_state.CurrentLobby != null) return;
+
+            MelonLogger.Msg("[ClientEvent] Connected to game server as client — switching to Room view");
+            _state.ViewState = Model.LobbyUIState.Room;
         }
 
         public override void OnApplicationQuit()
