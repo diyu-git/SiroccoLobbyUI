@@ -21,7 +21,7 @@ namespace SiroccoLobby.Services
         private const BindingFlags FLAGS = BindingFlags.Public | BindingFlags.NonPublic |
                                            BindingFlags.Instance | BindingFlags.Static;
 
-        public static void Apply(Harmony harmony)
+        public static void Apply(HarmonyLib.Harmony harmony)
         {
             if (_applied) return;
 
@@ -42,11 +42,27 @@ namespace SiroccoLobby.Services
                     return;
                 }
 
+                // ── Server start ──
+                // StartSinglePlayer / StartSinglePlayerWithSteamP2P never call
+                // OnStartServer (they use a custom setup path). Patch them directly.
+                Patch(harmony, wnmType, "StartSinglePlayer", nameof(Postfix_OnStartServer));
+                Patch(harmony, wnmType, "StartSinglePlayerWithSteamP2P", nameof(Postfix_OnStartServer));
+                // Also patch OnStartServer as a belt-and-suspenders catch-all
+                // (e.g. if Mirror calls it through a different code path).
                 Patch(harmony, wnmType, "OnStartServer", nameof(Postfix_OnStartServer));
+
+                // ── Server stop ──
                 Patch(harmony, wnmType, "StopServer", nameof(Postfix_StopServer));
-                Patch(harmony, wnmType, "OnServerConnect", nameof(Postfix_OnServerConnect));
+
+                // ── Peer connect/disconnect ──
+                // Game uses OnServerConnectInternal (not OnServerConnect).
+                Patch(harmony, wnmType, "OnServerConnectInternal", nameof(Postfix_OnServerConnect));
                 Patch(harmony, wnmType, "OnServerDisconnect", nameof(Postfix_OnServerDisconnect));
+
+                // ── Player added ──
                 Patch(harmony, wnmType, "OnServerAddPlayer", nameof(Postfix_OnServerAddPlayer));
+
+                // ── Client lifecycle ──
                 Patch(harmony, wnmType, "OnClientAuthenticated", nameof(Postfix_OnClientAuthenticated));
                 Patch(harmony, wnmType, "OnClientDisconnect", nameof(Postfix_OnClientDisconnect));
 
@@ -59,10 +75,8 @@ namespace SiroccoLobby.Services
             }
         }
 
-        private static void Patch(Harmony harmony, Type type, string methodName, string postfixName)
+        private static void Patch(HarmonyLib.Harmony harmony, Type type, string methodName, string postfixName)
         {
-            // Use the first overload found — these Mirror lifecycle methods don't have
-            // ambiguous overloads on WartideNetworkManager.
             var method = type.GetMethod(methodName, FLAGS);
             if (method == null)
             {
@@ -78,14 +92,22 @@ namespace SiroccoLobby.Services
         // Postfixes — fire and forget; never throw back into Mirror.
         // ============================================================
 
+        // Guard: OnStartServer may fire multiple times (from StartSinglePlayer
+        // postfix + from OnStartServer itself if it happens to be called).
+        // Only dispatch once per server session.
+        private static bool _serverStartNotified;
+
         public static void Postfix_OnStartServer()
         {
+            if (_serverStartNotified) return;
+            _serverStartNotified = true;
             try { NetworkIntegrationService.NotifyServerStarted(); }
-            catch (Exception ex) { MelonLogger.Warning($"[NetworkLifecyclePatches] OnStartServer dispatch failed: {ex.Message}"); }
+            catch (Exception ex) { MelonLogger.Warning($"[NetworkLifecyclePatches] ServerStarted dispatch failed: {ex.Message}"); }
         }
 
         public static void Postfix_StopServer()
         {
+            _serverStartNotified = false; // Reset so next server start is detected
             try { NetworkIntegrationService.NotifyServerStopped(); }
             catch (Exception ex) { MelonLogger.Warning($"[NetworkLifecyclePatches] StopServer dispatch failed: {ex.Message}"); }
         }
